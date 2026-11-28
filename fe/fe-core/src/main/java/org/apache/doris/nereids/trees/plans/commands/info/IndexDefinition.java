@@ -34,7 +34,6 @@ import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -542,8 +541,7 @@ public class IndexDefinition {
         if (variantType.getEnableNestedGroup()) {
             throw new AnalysisException("VARIANT values index does not support NestedGroup");
         }
-        if (variantType.getPredefinedFields().stream()
-                .anyMatch(field -> containsDecimal256(field.getDataType()))) {
+        if (variantType.hasDecimal256Template()) {
             throw new AnalysisException("VARIANT values index does not support declared Decimal256 paths");
         }
         if (invertedIndexFileStorageFormat != TInvertedIndexFileStorageFormat.SNII) {
@@ -570,16 +568,6 @@ public class IndexDefinition {
         if (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY)) {
             throw new AnalysisException("VARIANT values index does not support field_pattern");
         }
-    }
-
-    private static boolean containsDecimal256(DataType type) {
-        if (type instanceof DecimalV3Type) {
-            return ((DecimalV3Type) type).getPrecision() > 38;
-        }
-        if (type instanceof ArrayType) {
-            return containsDecimal256(((ArrayType) type).getItemType());
-        }
-        return false;
     }
 
     private void validateBloomFilterProperties() {

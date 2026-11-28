@@ -267,6 +267,19 @@ public class VariantType extends PrimitiveType {
         return predefinedFields;
     }
 
+    /** Whether any declared storage path uses Decimal256, including array elements. */
+    public boolean hasDecimal256Template() {
+        return predefinedFields.stream().anyMatch(field -> containsDecimal256(field.getDataType()));
+    }
+
+    private static boolean containsDecimal256(DataType type) {
+        while (type instanceof ArrayType) {
+            type = ((ArrayType) type).getItemType();
+        }
+        return type instanceof DecimalV3Type
+                && ((DecimalV3Type) type).getPrecision() > DecimalV3Type.MAX_DECIMAL128_PRECISION;
+    }
+
     public int getVariantMaxSubcolumnsCount() {
         return variantMaxSubcolumnsCount;
     }
