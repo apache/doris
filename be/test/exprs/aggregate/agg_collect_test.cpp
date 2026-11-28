@@ -18,15 +18,18 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <ostream>
 #include <string>
+#include <vector>
 
 #include "common/logging.h"
 #include "core/arena.h"
 #include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -381,6 +384,173 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64_with_max_size) {
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 3}),
                    ColumnHelper::create_column_with_name<DataTypeInt32>({3, 3, 3, 3, 3})}),
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
+}
+
+namespace {
+
+constexpr size_t kValueSize = 201;
+
+// `count` distinct strings of kValueSize bytes each.
+std::vector<std::string> distinct_values(size_t count) {
+    std::vector<std::string> values;
+    for (size_t i = 0; i < count; ++i) {
+        auto suffix = std::to_string(1000 + i);
+        values.push_back(std::string(kValueSize - suffix.size(), 'x') + suffix);
+    }
+    return values;
+}
+
+// `rows` rows that cycle over `values`.
+ColumnString::MutablePtr cycling_column(const std::vector<std::string>& values, size_t rows) {
+    auto column = ColumnString::create();
+    for (size_t row = 0; row < rows; ++row) {
+        const auto& value = values[row % values.size()];
+        column->insert_data(value.data(), value.size());
+    }
+    return column;
+}
+
+template <typename Set>
+std::vector<std::string> sorted_keys(const Set& set) {
+    std::vector<std::string> keys;
+    for (const auto& key : set) {
+        keys.push_back(key.to_string());
+    }
+    std::ranges::sort(keys);
+    return keys;
+}
+
+std::vector<std::string> sorted(std::vector<std::string> values) {
+    std::ranges::sort(values);
+    return values;
+}
+
+} // namespace
+
+// The arena frees nothing before it is destroyed, so its used size is what the state keeps:
+// one copy per distinct value, not one per input row.
+TEST(CollectSetStringArenaTest, AddCopiesEachDistinctValueOnce) {
+    auto values = distinct_values(10);
+    values.emplace_back();
+    auto column = cycling_column(values, 20000);
+    const DataTypes argument_types {std::make_shared<DataTypeString>()};
+    AggregateFunctionCollectSetData<TYPE_STRING, false> data(argument_types);
+    Arena arena;
+
+    for (size_t row = 0; row < column->size(); ++row) {
+        data.add(*column, row, arena);
+    }
+
+    // Copying before the lookup kept a copy of every row: 18,182 non-empty rows * 201 bytes.
+    EXPECT_EQ(arena.used_size(), 10 * kValueSize);
+    std::ranges::fill(column->get_chars(), '?');
+    EXPECT_EQ(sorted_keys(data.data_set), sorted(values));
+    for (const auto& key : data.data_set) {
+        EXPECT_TRUE(arena.contains(key.data, key.size));
+    }
+}
+
+TEST(CollectSetStringArenaTest, AddWithLimitCopiesEachDistinctValueOnce) {
+    const DataTypes argument_types {std::make_shared<DataTypeString>(),
+                                    std::make_shared<DataTypeInt32>()};
+    auto function = AggregateFunctionSimpleFactory::instance().get("collect_set", argument_types,
+                                                                   nullptr, false, -1);
+    ASSERT_NE(function, nullptr);
+    const auto values = distinct_values(10);
+    auto column = cycling_column(values, 20000);
+    auto limit = ColumnInt32::create(column->size(), 100);
+    const IColumn* columns[] = {column.get(), limit.get()};
+    Arena arena;
+    AggregateFunctionGuard state(function.get());
+
+    function->add_batch_single_place(column->size(), state.data(), columns, arena);
+
+    // The limit counts distinct values only, so it never stopped the copies of duplicates:
+    // copying before the lookup kept 20,000 * 201 bytes here.
+    EXPECT_EQ(arena.used_size(), 10 * kValueSize);
+}
+
+TEST(CollectSetStringArenaTest, MergeCopiesOnlyNewValues) {
+    const DataTypes argument_types {std::make_shared<DataTypeString>()};
+    const auto values = distinct_values(10);
+    AggregateFunctionCollectSetData<TYPE_STRING, false> destination(argument_types);
+    Arena arena;
+    {
+        AggregateFunctionCollectSetData<TYPE_STRING, false> source(argument_types);
+        Arena source_arena;
+        auto column = cycling_column(values, values.size());
+        for (size_t row = 0; row < column->size(); ++row) {
+            source.add(*column, row, source_arena);
+        }
+        for (int repeat = 0; repeat < 1000; ++repeat) {
+            destination.merge(source, arena);
+        }
+    }
+
+    // Copying before the lookup used 1,000 * 10 * 201 bytes here.
+    EXPECT_EQ(arena.used_size(), 10 * kValueSize);
+    EXPECT_EQ(sorted_keys(destination.data_set), sorted(values));
+}
+
+TEST(CollectSetStringArenaTest, MergeWithLimitCopiesOnlyNewValuesAndKeepsTheLimit) {
+    const DataTypes argument_types {std::make_shared<DataTypeString>()};
+    const auto values = distinct_values(10);
+    AggregateFunctionCollectSetData<TYPE_STRING, true> source(argument_types);
+    Arena source_arena;
+    auto column = cycling_column(values, values.size());
+    for (size_t row = 0; row < column->size(); ++row) {
+        source.add(*column, row, source_arena);
+    }
+
+    for (Int64 max_size : {3, 100}) {
+        AggregateFunctionCollectSetData<TYPE_STRING, true> destination(argument_types);
+        destination.max_size = max_size;
+        Arena arena;
+        for (int repeat = 0; repeat < 100; ++repeat) {
+            destination.merge(source, arena);
+        }
+
+        const auto kept = std::min(static_cast<size_t>(max_size), values.size());
+        EXPECT_EQ(destination.size(), kept);
+        EXPECT_EQ(arena.used_size(), kept * kValueSize);
+    }
+}
+
+TEST(CollectSetStringArenaTest, DeserializeAndMergeCopiesOnlyNewValues) {
+    const DataTypes argument_types {std::make_shared<DataTypeString>()};
+    auto function = AggregateFunctionSimpleFactory::instance().get("collect_set", argument_types,
+                                                                   nullptr, false, -1);
+    ASSERT_NE(function, nullptr);
+    const auto values = distinct_values(10);
+    auto serialized = function->get_serialized_type()->create_column();
+    {
+        Arena source_arena;
+        AggregateFunctionGuard source(function.get());
+        auto column = cycling_column(values, 1000);
+        const IColumn* columns[] = {column.get()};
+        function->add_batch_single_place(column->size(), source.data(), columns, source_arena);
+        for (int repeat = 0; repeat < 100; ++repeat) {
+            function->serialize_without_key_to_column(source.data(), *serialized);
+        }
+    }
+
+    Arena arena;
+    AggregateFunctionGuard destination(function.get());
+    function->deserialize_and_merge_from_column(destination.data(), *serialized, arena);
+
+    // 100 serialized copies of the same 10 values; copying before the lookup kept all of them.
+    EXPECT_EQ(arena.used_size(), 10 * kValueSize);
+    auto& serialized_chars = assert_cast<ColumnString&>(*serialized).get_chars();
+    std::ranges::fill(serialized_chars, '?');
+    auto result = ColumnArray::create(make_nullable(ColumnString::create()));
+    function->insert_result_into(destination.data(), *result);
+    const auto& strings =
+            assert_cast<const ColumnNullable&>(result->get_data()).get_nested_column();
+    std::vector<std::string> actual;
+    for (size_t i = 0; i < strings.size(); ++i) {
+        actual.push_back(strings.get_data_at(i).to_string());
+    }
+    EXPECT_EQ(sorted(actual), sorted(values));
 }
 
 } // namespace doris

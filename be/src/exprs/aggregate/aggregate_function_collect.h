@@ -133,9 +133,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num, Arena& arena) {
-        auto key = column.get_data_at(row_num);
-        key.data = arena.insert(key.data, key.size);
-        data_set.insert(key);
+        insert_borrowed(column.get_data_at(row_num), arena);
     }
 
     void merge(const SelfType& rhs, Arena& arena) {
@@ -149,10 +147,17 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
                     return;
                 }
             }
-            StringRef key = rhs_elem;
-            key.data = arena.insert(key.data, key.size);
-            data_set.insert(key);
+            insert_borrowed(rhs_elem, arena);
         }
+    }
+
+    // `key` borrows its bytes from the input column or another state. Copy them into the arena
+    // only for a new key: the arena keeps every allocation until it is destroyed, so a copy made
+    // for a duplicate would be dead memory until then.
+    void insert_borrowed(StringRef key, Arena& arena) {
+        data_set.lazy_emplace(key, [&](const auto& ctor) {
+            ctor(StringRef(arena.insert(key.data, key.size), key.size));
+        });
     }
 
     void write(BufferWritable& buf) const {
