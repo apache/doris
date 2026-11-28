@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -249,14 +250,136 @@ TEST(AggregateFunctionQuantileStateTest, EmptyWindowAfterNonemptyWindow) {
 
 TEST(AggregateFunctionQuantileStateTest, ResetClearsAllRepresentations) {
     for (bool is_window : {false, true}) {
-        for (size_t count : {size_t(1), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_NUM + 1)}) {
+        for (size_t count : {size_t(1), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_MAX_NUM + 1)}) {
             expect_reset_quantile_state(count, is_window);
         }
     }
 }
 
+TEST(AggregateFunctionQuantileStateTest, RestoredAccumulatorMergesNextPartial) {
+    using Data = AggregateFunctionQuantileStateData<AggregateFunctionQuantileStateUnionOp>;
+    for (float compression : {128.0F, 2048.0F}) {
+        Data original;
+        QuantileState first(compression);
+        for (int i = 0; i < 480; ++i) {
+            first.add_value(10);
+        }
+        original.merge(first);
+        auto serialized = ColumnString::create();
+        BufferWritable writer(*serialized);
+        original.write(writer);
+        writer.commit();
+
+        Data restored;
+        BufferReadable reader(serialized->get_data_at(0));
+        restored.read(reader);
+        QuantileState next(compression);
+        for (int i = 0; i < 480; ++i) {
+            next.add_value(20);
+        }
+        restored.merge(next);
+        EXPECT_FALSE(restored.is_first);
+        EXPECT_EQ(compression, restored.value._compression);
+        EXPECT_EQ(10, restored.value.get_value_by_percentile(0));
+        EXPECT_EQ(20, restored.value.get_value_by_percentile(1));
+        if (compression == 128) {
+            EXPECT_EQ(960, restored.value._mutable_tdigest().total_weight());
+        } else {
+            EXPECT_EQ(960, restored.value._explicit_data.size());
+        }
+    }
+}
+
+static QuantileState make_compaction_input(float compression, int first_value) {
+    QuantileState state(compression);
+    for (int i = 0; i < 480; ++i) {
+        state.add_value(i + first_value);
+    }
+    return state;
+}
+
+static void expect_reader_quantile_roundtrip(const QuantileState& result, float compression,
+                                             int count) {
+    std::vector<uint8_t> bytes(result.get_serialized_size());
+    ASSERT_EQ(bytes.size(), result.serialize(bytes.data()));
+    float serialized_compression;
+    std::memcpy(&serialized_compression, bytes.data(), sizeof(serialized_compression));
+    EXPECT_EQ(compression, serialized_compression);
+    QuantileState restored(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size()));
+    EXPECT_EQ(compression, restored._compression);
+    EXPECT_EQ(0, restored.get_value_by_percentile(0));
+    EXPECT_EQ(count - 1, restored.get_value_by_percentile(1));
+}
+
+static void expect_reader_quantile_result(const QuantileState& result, float compression,
+                                          int count) {
+    EXPECT_EQ(compression, result._compression);
+    EXPECT_EQ(0, result.get_value_by_percentile(0));
+    EXPECT_EQ(count - 1, result.get_value_by_percentile(1));
+    // Every caller includes a 480-sample C32 digest, even when the selected C is higher.
+    ASSERT_EQ(TDIGEST, result._type);
+    auto copy = result;
+    EXPECT_EQ(compression, copy._mutable_tdigest().compression());
+    EXPECT_EQ(count, copy._mutable_tdigest().total_weight());
+    expect_reader_quantile_roundtrip(result, compression, count);
+}
+
+static void expect_reader_quantile_merge(float right_compression, bool reverse) {
+    auto left = make_compaction_input(32, 0);
+    auto right = make_compaction_input(right_compression, 480);
+    for (const auto* name : {"quantile_union", "quantile_union_reader", "quantile_union_load"}) {
+        SCOPED_TRACE(name);
+        auto type = std::make_shared<DataTypeQuantileState>();
+        auto function = AggregateFunctionSimpleFactory::instance().get(
+                name, {type}, type, false, BeExecVersionManager::get_newest_version(),
+                {.column_names = {}});
+        ASSERT_NE(nullptr, function);
+        std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+        auto* place = memory.get();
+        function->create(place);
+        Defer destroy([&] { function->destroy(place); });
+        Arena arena;
+        auto input = ColumnQuantileState::create();
+        input->insert_value(reverse ? right : left);
+        input->insert_value(reverse ? left : right);
+        const IColumn* columns[] = {input.get()};
+        function->add(place, columns, 0, arena);
+        auto single = ColumnQuantileState::create();
+        function->insert_result_into(place, *single);
+        const auto& first = single->get_element(0);
+        EXPECT_EQ(reverse ? right_compression : 32, first._compression);
+        EXPECT_EQ(reverse ? 480 : 0, first.get_value_by_percentile(0));
+        EXPECT_EQ(reverse ? 959 : 479, first.get_value_by_percentile(1));
+        function->add(place, columns, 1, arena);
+        auto merged = ColumnQuantileState::create();
+        function->insert_result_into(place, *merged);
+        expect_reader_quantile_result(merged->get_element(0), right_compression, 960);
+        // The first retained result must not be changed by subsequent aggregation.
+        EXPECT_EQ(reverse ? right_compression : 32, first._compression);
+        EXPECT_EQ(reverse ? 959 : 479, first.get_value_by_percentile(1));
+    }
+    EXPECT_EQ(32, left._compression);
+    EXPECT_EQ(right_compression, right._compression);
+}
+
+TEST(AggregateFunctionQuantileStateTest, ReaderSelectsMaximumCompression) {
+    for (float compression : {32.0F, 128.0F, 2048.0F, 10000.0F}) {
+        expect_reader_quantile_merge(compression, false);
+        expect_reader_quantile_merge(compression, true);
+    }
+}
+
+TEST(AggregateFunctionQuantileStateTest, ReaderPreservesSingleLowState) {
+    using Data = AggregateFunctionQuantileStateData<AggregateFunctionQuantileStateUnionOp>;
+    auto low = make_compaction_input(32, 0);
+    Data single;
+    single.add(low);
+    expect_reader_quantile_result(single.value, 32, 480);
+    EXPECT_EQ(32, low._compression);
+}
+
 TEST(AggregateFunctionQuantileStateTest, RepeatedExplicitFramesReuseCapacity) {
-    for (size_t frame_size : {size_t(2), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_NUM)}) {
+    for (size_t frame_size : {size_t(2), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_MAX_NUM)}) {
         expect_repeated_explicit_frames_reuse_capacity(frame_size);
     }
 }

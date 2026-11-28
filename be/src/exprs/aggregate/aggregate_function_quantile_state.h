@@ -81,7 +81,11 @@ struct AggregateFunctionQuantileStateData {
         DataTypeQuantileState::serialize_as_stream(value, buf);
     }
 
-    void read(BufferReadable& buf) { DataTypeQuantileState::deserialize_as_stream(value, buf); }
+    void read(BufferReadable& buf) {
+        DataTypeQuantileState::deserialize_as_stream(value, buf);
+        // A restored accumulator already contains a partial; the next input must merge it.
+        is_first = false;
+    }
 
     void reset() {
         is_first = true;
