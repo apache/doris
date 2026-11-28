@@ -84,6 +84,7 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/segment/variant/binary_column_extract_iterator.h"
 #include "storage/segment/variant/hierarchical_data_iterator.h"
@@ -1628,6 +1629,23 @@ TEST(VariantColumnIndexBindingTest, RenamedRootKeepsStoredSubpathIndexSuffix) {
     }
 }
 
+static void expect_data_and_inline_index_bytes(
+        const ColumnWriter& writer, const io::FileWriter& file_writer,
+        const std::vector<segment_v2::SegmentIndexFileCacheRange>& early_index_ranges) {
+    // Materialized paths write inline indexes alongside their data. The compressed data count
+    // still includes those paths' data pages and excludes their index pages.
+    const auto file_bytes = file_writer.bytes_appended();
+    uint64_t early_index_bytes = 0;
+    uint64_t previous_end = 0;
+    for (const auto& range : early_index_ranges) {
+        EXPECT_TRUE(range.is_valid_for(file_bytes));
+        EXPECT_GE(range.offset, previous_end);
+        previous_end = range.offset + range.size;
+        early_index_bytes += range.size;
+    }
+    EXPECT_EQ(writer.get_total_compressed_data_pages_bytes() + early_index_bytes, file_bytes);
+}
+
 class VariantColumnWriterReaderTest : public testing::Test {
 public:
     // Parent VARIANT column with an extracted VARIANT subcolumn `v.payload`, i.e. the layout
@@ -2069,9 +2087,11 @@ protected:
         rowset_ctx.tablet_path = _tablet->tablet_path();
 
         TabletColumn column = _tablet_schema->column(0);
+        std::vector<segment_v2::SegmentIndexFileCacheRange> early_index_ranges;
         ColumnWriterOptions opts;
         opts.meta = footer->add_columns();
         opts.index_file_writer = index_file_writer.get();
+        opts.early_index_ranges = &early_index_ranges;
         opts.compression_type = CompressionTypePB::LZ4;
         opts.file_writer = file_writer.get();
         opts.footer = footer;
@@ -2107,8 +2127,7 @@ protected:
 
         RETURN_IF_ERROR(writer->finish());
         RETURN_IF_ERROR(writer->write_data());
-        // The file holds only the data pages of this variant so far.
-        EXPECT_EQ(writer->get_total_compressed_data_pages_bytes(), file_writer->bytes_appended());
+        expect_data_and_inline_index_bytes(*writer, *file_writer, early_index_ranges);
         RETURN_IF_ERROR(writer->write_ordinal_index());
         RETURN_IF_ERROR(writer->write_zone_map());
         if (index_write_policy == VariantIndexWritePolicy::BLOOM_AND_INVERTED) {
@@ -4565,7 +4584,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
     // 4. create column_writer
     SegmentFooterPB footer;
+    std::vector<segment_v2::SegmentIndexFileCacheRange> early_index_ranges;
     ColumnWriterOptions opts;
+    opts.early_index_ranges = &early_index_ranges;
     opts.meta = footer.add_columns();
     opts.compression_type = CompressionTypePB::LZ4;
     opts.file_writer = file_writer.get();
@@ -4601,8 +4622,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     EXPECT_TRUE(st.ok()) << st.msg();
     st = writer->write_data();
     EXPECT_TRUE(st.ok()) << st.msg();
-    // The root, the subcolumns and the sparse columns all count to the variant.
-    EXPECT_EQ(writer->get_total_compressed_data_pages_bytes(), file_writer->bytes_appended());
+    expect_data_and_inline_index_bytes(*writer, *file_writer, early_index_ranges);
     EXPECT_GT(writer->get_total_uncompressed_data_pages_bytes(), 0);
     EXPECT_GT(writer->get_raw_data_bytes(), 0);
     st = writer->write_ordinal_index();

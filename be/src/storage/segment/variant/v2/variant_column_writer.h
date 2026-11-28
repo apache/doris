@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <span>
 #include <vector>
@@ -73,7 +72,6 @@ private:
                                OlapBlockDataConvertor* converter, int& column_id);
     Status _write_binary(const VariantShreddedColumns& shredded, OlapBlockDataConvertor* converter,
                          int& column_id);
-    Status _for_each_column_writer(const std::function<Status(ColumnWriter*)>& function);
 
     ColumnWriterOptions _opts;
     const TabletColumn* _tablet_column = nullptr;
@@ -84,9 +82,10 @@ private:
     bool _is_finalized = false;
 
     std::unique_ptr<ColumnWriter> _root_writer;
-    std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
-    std::vector<ColumnWriterOptions> _subcolumn_opts;
-    std::vector<TabletIndexes> _subcolumn_indexes;
+    // Keep the data-page statistics after the materialized writers are released.
+    uint64_t _materialized_raw_data_bytes = 0;
+    uint64_t _materialized_uncompressed_data_bytes = 0;
+    uint64_t _materialized_compressed_data_bytes = 0;
     std::unique_ptr<VariantBinaryWriter> _binary_writer;
     std::vector<std::unique_ptr<VariantValuesIndexWriter>> _values_index_writers;
 };
