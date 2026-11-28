@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.catalog.TableQueryAuthResult;
@@ -32,10 +33,12 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
@@ -124,15 +127,42 @@ public class PaimonBackendBoundTableTest {
         PaimonWriteBinding binding = PaimonWriteBinding.create(
                 dataHandle(), table, Collections.emptyMap(),
                 writeHandle(false, Collections.emptyMap(), Collections.emptySet()), true);
-        FileStoreTable backendTable = deserializeTable(binding.getSerializedTable());
+        org.apache.doris.thrift.TPaimonTableDesc descriptor =
+                binding.getTableDescriptor(Collections.emptyMap(), false);
+        TableSchema backendSchema = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                descriptor.getSchemaJson(), TableSchema.class);
 
         Assertions.assertNotNull(binding.getTable().catalogEnvironment().catalogLoader());
-        Assertions.assertNull(backendTable.catalogEnvironment().catalogLoader());
+        Assertions.assertFalse(descriptor.getCatalogContext().isCatalogLoaderEnabled());
         // The BE table also tells the writer whether to pad CHAR values; its schema is the FE one otherwise.
-        Map<String, String> backendOptions = new HashMap<>(backendTable.schema().options());
+        Map<String, String> backendOptions = new HashMap<>(backendSchema.options());
         Assertions.assertEquals("true", backendOptions.remove(PaimonWriteBinding.DORIS_WRITE_CHAR_PADDING));
-        Assertions.assertEquals(table.schema(), backendTable.schema().copy(backendOptions));
-        Assertions.assertEquals(table.location(), backendTable.location());
+        Assertions.assertEquals(table.schema(), backendSchema.copy(backendOptions));
+        Assertions.assertEquals(table.location().toString(), descriptor.getTablePath());
+    }
+
+    @Test
+    public void rustPrimaryKeyBufferFlushesWithinTheDefaultBudget(@TempDir Path warehouse) {
+        for (String buffer : Arrays.asList("1 mb", "256 mb")) {
+            Map<String, String> options = new HashMap<>();
+            options.put("bucket", "2");
+            options.put("write-buffer-size", buffer);
+            FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
+                    new org.apache.paimon.fs.Path(warehouse.toUri()), new TableSchema(0,
+                            Collections.singletonList(new DataField(0, "c1", DataTypes.INT().notNull())),
+                            0, Collections.emptyList(), Collections.singletonList("c1"), options, null));
+            PaimonWriteBinding binding = PaimonWriteBinding.create(dataHandle(), table, Collections.emptyMap(),
+                    writeHandle(false, Collections.emptyMap(), Collections.emptySet()), false);
+            TableSchema rust = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                    binding.getTableDescriptor(Collections.emptyMap(), true).getSchemaJson(), TableSchema.class);
+            TableSchema jni = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                    binding.getTableDescriptor(Collections.emptyMap(), false).getSchemaJson(), TableSchema.class);
+            long original = CoreOptions.fromMap(table.options()).writeBufferSize();
+            Assertions.assertEquals(Math.min(original, 8L * 1024 * 1024),
+                    CoreOptions.fromMap(rust.options()).writeBufferSize());
+            Assertions.assertEquals(original, CoreOptions.fromMap(jni.options()).writeBufferSize());
+            Assertions.assertEquals(buffer, table.options().get("write-buffer-size"));
+        }
     }
 
     @Test
@@ -147,9 +177,47 @@ public class PaimonBackendBoundTableTest {
                     writeHandle(false, Collections.emptyMap(), Collections.emptySet()), charPadding);
 
             Assertions.assertEquals(String.valueOf(charPadding),
-                    deserializeTable(binding.getSerializedTable()).options().get("doris.write.char-padding"));
+                    org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                            binding.getTableDescriptor(Collections.emptyMap(), false).getSchemaJson(), TableSchema.class)
+                            .options().get("doris.write.char-padding"));
             Assertions.assertFalse(binding.getTable().options().containsKey("doris.write.char-padding"));
         }
+    }
+
+    @Test
+    public void writeBindingPreservesRestFileIOContextWithoutCatalogLookups(@TempDir Path warehouse) {
+        Map<String, String> options = new HashMap<>();
+        options.put("uri", "http://127.0.0.1:1");
+        options.put("header.X-Writer", "rest-writer");
+        org.apache.hadoop.conf.Configuration hadoop = new org.apache.hadoop.conf.Configuration();
+        hadoop.set("io.file.buffer.size", "12345");
+        CatalogContext context = CatalogContext.create(Options.fromMap(options), hadoop);
+        Identifier remote = new Identifier("RemoteDB", "RemoteTable");
+        CatalogEnvironment environment = new CatalogEnvironment(remote, "rest-uuid",
+                () -> {
+                    throw new AssertionError("BE catalog lookup is not needed");
+                },
+                null, null, context, true, false);
+        FileStoreTable local = newTable(warehouse, CatalogEnvironment.empty(), C1);
+        RESTTokenFileIO fileIO = new RESTTokenFileIO(context, null, remote, local.location());
+        FileStoreTable table = new AppendOnlyFileStoreTable(fileIO, local.location(), local.schema(), environment);
+        PaimonWriteBinding binding = PaimonWriteBinding.create(dataHandle(), table,
+                Collections.emptyMap(), writeHandle(false, Collections.emptyMap(), Collections.emptySet()), true);
+
+        org.apache.doris.thrift.TPaimonTableDesc descriptor =
+                binding.getTableDescriptor(Collections.emptyMap(), false);
+
+        Assertions.assertEquals("RemoteDB", descriptor.getDatabaseName());
+        Assertions.assertEquals("RemoteTable", descriptor.getTableName());
+        Assertions.assertEquals("rest-uuid", descriptor.getCatalogContext().getTableUuid());
+        Assertions.assertEquals("http://127.0.0.1:1", descriptor.getCatalogContext().getOptions().get("uri"));
+        Assertions.assertEquals("rest-writer", descriptor.getCatalogContext().getOptions().get("header.X-Writer"));
+        Assertions.assertEquals("true", descriptor.getCatalogContext().getOptions()
+                .get(RESTTokenFileIO.DATA_TOKEN_ENABLED.key()));
+        Assertions.assertEquals("12345", descriptor.getCatalogContext().getHadoopConfig().get("io.file.buffer.size"));
+        Assertions.assertFalse(descriptor.getCatalogContext().isCatalogLoaderEnabled());
+        Assertions.assertFalse(descriptor.getCatalogContext().isSupportsVersionManagement());
+        Assertions.assertFalse(options.containsKey(RESTTokenFileIO.DATA_TOKEN_ENABLED.key()));
     }
 
     @Test

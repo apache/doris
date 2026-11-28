@@ -35,7 +35,7 @@ class RuntimeState;
 /// owns one IPaimonWriteBackend and one IPaimonWriter. Pipeline parallelism
 /// therefore determines the number of independent Paimon writer sessions;
 /// each writer session delegates partition and bucket routing to the Paimon
-/// SDK (Java via JNI, or Rust via FFI in the future).
+/// SDK (Java via JNI or Rust via FFI).
 ///
 /// Doris does NOT compute partition values or bucket ids — it passes complete
 /// Blocks through the selected backend (JNI/FFI) to the Paimon SDK, which
@@ -51,7 +51,7 @@ class RuntimeState;
 ///     │    └─ create_writer() → IPaimonWriter
 ///     │  write()
 ///     │    → JNI backend: Block → Arrow C Data → Java Paimon SDK
-///     │    → FFI backend: Block → Rust writer (future)
+///     │    → FFI backend: Block → Arrow C Data → Rust writer
 ///     │    → selected SDK owns row normalization, routing, buffering,
 ///     │      file writing, and compaction
 ///     ▼
@@ -87,6 +87,10 @@ private:
     std::unique_ptr<IPaimonWriter> _writer;
 
     // Profile counters
+    RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* _abort_timer = nullptr;
+    RuntimeProfile::Counter* _abort_attempts = nullptr;
+    RuntimeProfile::Counter* _abort_failures = nullptr;
     RuntimeProfile::Counter* _written_rows_counter = nullptr;
     RuntimeProfile::Counter* _written_bytes_counter = nullptr;
     RuntimeProfile::Counter* _send_data_timer = nullptr;

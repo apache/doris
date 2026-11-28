@@ -47,6 +47,13 @@ under the License.
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
+        <!-- The pinned table descriptor crosses JNI as bytes. Decode it with the matching
+             generated types and Thrift runtime inside this plugin, as the MaxCompute writer does. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!--
           For loading a user-supplied JDBC driver jar: a Paimon catalog can keep its metadata in a
           relational database, and that driver is named by the catalog, not by this build.
