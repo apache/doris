@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.ConnectorType;
@@ -34,6 +35,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
@@ -1656,6 +1658,48 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
+        return !((PaimonTableHandle) handle).isSystemTable()
+                && (session == null || !Boolean.parseBoolean(session.getSessionProperties()
+                        .getOrDefault("enable_paimon_internal_partition_pruning", "false")));
+    }
+
+    @Override
+    public Optional<ConnectorSqlCacheVersion> getSqlCacheVersion(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.isSystemTable()) {
+            throw new UnsupportedOperationException("Paimon system tables do not support SQL cache versioning");
+        }
+        return readMetadataAuthenticated(() -> {
+            Table table = resolveTable(paimonHandle);
+            ConnectorSqlCacheVersion version = catalogOps.resolveSqlCacheVersion(
+                    table, paimonHandle.getBranchName(), paimonHandle.getScanOptions())
+                    .orElseThrow(() -> new UnsupportedOperationException(
+                            "Paimon SQL cache requires published data-table snapshot metadata"));
+            return Optional.of(version);
+        });
+    }
+
+    @Override
+    public Optional<String> getPartitionViewVersion(ConnectorSession session, ConnectorTableHandle handle) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.isSystemTable() || session == null
+                || session.getStatementScope() == ConnectorStatementScope.NONE
+                || !catalogOps.listsPartitionsFromSnapshot()
+                || !PaimonScanParams.supportsPartitionViewVersion(paimonHandle.getScanOptions())) {
+            // Without a statement-scoped pinned handle, metadata could change between version lookup and listing.
+            return Optional.empty();
+        }
+        return readMetadataAuthenticated(() -> {
+            Table table = resolveTable(paimonHandle);
+            return catalogOps.resolveSqlCacheVersion(
+                    table, paimonHandle.getBranchName(), paimonHandle.getScanOptions())
+                    .map(ConnectorSqlCacheVersion::getVersion);
+        });
+    }
+
+    @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
         List<ConnectorPartitionInfo> partitions = cachedPartitions((PaimonTableHandle) handle);
         List<String> names = new ArrayList<>(partitions.size());
@@ -1778,12 +1822,19 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             table = PaimonScanParams.applyOptions(resolvedTable, scanOptions);
         } else {
             String snapshotId = scanOptions.get(CoreOptions.SCAN_SNAPSHOT_ID.key());
-            // Fence hydration receives an ordinary positive snapshot pin. Apply it before listing
-            // partitions so EXPLAIN and block-rule accounting describe the same version as the scan.
-            Table partitionTable = snapshotId == null
+            String tagName = scanOptions.get(CoreOptions.SCAN_TAG_NAME.key());
+            Map<String, String> historicalSelector = snapshotId != null
+                    ? Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId)
+                    : tagName != null
+                            ? Collections.singletonMap(CoreOptions.SCAN_TAG_NAME.key(), tagName)
+                            : null;
+            // Fence hydration receives a snapshot or direct tag pin. Apply it before listing
+            // partitions so EXPLAIN, partition view caching, and block-rule accounting describe
+            // the same version as the scan (including tags whose underlying snapshot file expired).
+            Table partitionTable = historicalSelector == null
                     ? resolvedTable
                     : PaimonScanParams.copyWithHistoricalSchema(resolvedTable, PaimonScanParams.withCatalogOptions(
-                            Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId),
+                            historicalSelector,
                             PaimonTableOptions.extractCompatible(catalogProperties.getRaw())));
             // Partition projection never opens a data reader, so reader-only settings must not
             // invalidate metadata that a later relation-scoped override can make safe.

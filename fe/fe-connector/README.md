@@ -380,8 +380,9 @@ objects shared by the connector cache.
 
 A connector declaring `supportsNativePartitionPlanning` can defer the engine
 partition view until a consumer actually requires internal partition semantics.
-For Iceberg, `enable_iceberg_internal_partition_pruning` defaults to `false`:
-ordinary scans use native manifest/file pruning. Setting it to `true` enables
+For Iceberg and Paimon, `enable_iceberg_internal_partition_pruning` and
+`enable_paimon_internal_partition_pruning` default to `false`:
+ordinary scans use native manifest/file pruning. Setting them to `true` enables
 Doris partition pruning. MV planning and partition metadata rules still request
 the full view; deferred metadata must never be treated as an empty table.
 

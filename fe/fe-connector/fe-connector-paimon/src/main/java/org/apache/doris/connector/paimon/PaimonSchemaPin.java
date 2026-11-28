@@ -18,8 +18,10 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 
 import com.google.common.hash.Hashing;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
@@ -34,6 +36,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.LongSupplier;
 
 /** Immutable file coordinates carried by the MVCC pin, including across INSERT planning attempts. */
@@ -243,6 +248,209 @@ final class PaimonSchemaPin {
     static long fallbackSchemaId(Map<String, String> options, String path, LongSupplier defaultId) {
         String pinned = options.get(PREFIX + path + "schema-id");
         return pinned == null ? defaultId.getAsLong() : Long.parseLong(pinned);
+    }
+
+    static Optional<ConnectorSqlCacheVersion> resolveSqlCacheVersion(
+            Table table, String branchName, Map<String, String> scanOptions) {
+        if (!PaimonScanParams.hasPinnedVersion(scanOptions)) {
+            return Optional.empty();
+        }
+        if (!coordinates(scanOptions).isEmpty()) {
+            validate(table, scanOptions);
+        }
+        Optional<ResolvedVersion> resolved = resolveTableVersion(table, scanOptions, "");
+        if (!resolved.isPresent()) {
+            return Optional.empty();
+        }
+        String branch = branchName == null ? "main" : branchName;
+        String payload = "branch=" + branch
+                + "|options=" + PaimonScanParams.canonicalCacheOptions(scanOptions)
+                + "|table=" + resolved.get().token;
+        return Optional.of(new ConnectorSqlCacheVersion(digest(payload), resolved.get().updateTimeMillis));
+    }
+
+    /**
+     * Checks dynamic query-auth eligibility against the physical branch's effective bound schema (plus any
+     * runtime/catalog/query option overlay), rather than the potentially stale cached {@link FileStoreTable}
+     * schema. Dynamic server-side row/column authorization runs in {@code scan.plan()}, so enabled branches
+     * must not serve SQL-cached results.
+     */
+    private static boolean isQueryAuthEnabled(
+            DataTable data, TableSchema effectiveSchema, Map<String, String> scanOptions) {
+        String key = CoreOptions.QUERY_AUTH_ENABLED.key();
+        String effective = effectiveSchema.options().get(key);
+        if (Boolean.parseBoolean(effective)) {
+            return true;
+        }
+        if (data instanceof FileStoreTable) {
+            FileStoreTable fileStore = (FileStoreTable) data;
+            String liveValue = fileStore.options().get(key);
+            if (Boolean.parseBoolean(liveValue)) {
+                if (fileStore.schema().id() == effectiveSchema.id()) {
+                    return true;
+                }
+                Optional<TableSchema> cachedPersisted = readSchema(
+                        fileStore.schemaManager(), fileStore.schema().id());
+                if (!cachedPersisted.isPresent()
+                        || !Objects.equals(cachedPersisted.get().options().get(key), liveValue)) {
+                    return true;
+                }
+            }
+        }
+        String catalogOverride = scanOptions.get("doris.internal.paimon.catalog-option." + key);
+        if (Boolean.parseBoolean(catalogOverride)) {
+            return true;
+        }
+        if (Boolean.parseBoolean(scanOptions.get(key))) {
+            return true;
+        }
+        return effective == null && CoreOptions.QUERY_AUTH_ENABLED.defaultValue();
+    }
+
+    private static Optional<ResolvedVersion> resolveTableVersion(
+            Table table, Map<String, String> scanOptions, String path) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            Optional<ResolvedVersion> main = resolveTableVersion(pair.wrapped(), scanOptions, path);
+            if (!main.isPresent()) {
+                return Optional.empty();
+            }
+            Optional<ResolvedVersion> fallback = resolveFallbackBranchVersion(
+                    pair.other(), scanOptions, path + "fallback.", main.get().mainSnapshotMillis);
+            if (!fallback.isPresent()) {
+                return Optional.empty();
+            }
+            return Optional.of(new ResolvedVersion(
+                    "fallback(" + main.get().token + "," + fallback.get().token + ")",
+                    Math.max(main.get().updateTimeMillis, fallback.get().updateTimeMillis),
+                    main.get().mainSnapshotMillis));
+        }
+        if (table instanceof DelegatedFileStoreTable) {
+            return resolveTableVersion(((DelegatedFileStoreTable) table).wrapped(), scanOptions, path);
+        }
+        if (!(table instanceof DataTable)) {
+            return Optional.empty();
+        }
+        return resolveDataTableVersion((DataTable) table, scanOptions);
+    }
+
+    private static Optional<ResolvedVersion> resolveDataTableVersion(
+            DataTable data, Map<String, String> scanOptions) {
+        OptionalLong boundSchema = PaimonScanParams.boundSchemaId(scanOptions);
+        if (PaimonScanParams.isPinnedEmptyScan(scanOptions)) {
+            Optional<TableSchema> schema = boundSchema.isPresent()
+                    ? readSchema(data.schemaManager(), boundSchema.getAsLong())
+                    : data.schemaManager().latest();
+            if (!schema.isPresent() || isQueryAuthEnabled(data, schema.get(), scanOptions)) {
+                return Optional.empty();
+            }
+            String token = data.location() + "|schema:" + schema.get().id() + ":"
+                    + schemaDigest(schema.get()) + "|empty";
+            return Optional.of(new ResolvedVersion(token, 0L, OptionalLong.empty()));
+        }
+        String snapshotIdValue = scanOptions.get(CoreOptions.SCAN_SNAPSHOT_ID.key());
+        if (snapshotIdValue == null) {
+            return Optional.empty();
+        }
+        long snapshotId = Long.parseLong(snapshotIdValue);
+        if (!data.snapshotManager().snapshotExists(snapshotId)) {
+            return Optional.empty();
+        }
+        Snapshot snap = snapshot(data, snapshotId);
+        long schemaId = boundSchema.orElse(snap.schemaId());
+        Optional<TableSchema> schema = readSchema(data.schemaManager(), schemaId);
+        if (!schema.isPresent() || isQueryAuthEnabled(data, schema.get(), scanOptions)) {
+            return Optional.empty();
+        }
+        String token = data.location() + "|schema:" + schemaId + ":" + schemaDigest(schema.get())
+                + "|snap:" + snapshotId + ":" + digest(snap.toJson());
+        return Optional.of(new ResolvedVersion(token, snap.timeMillis(), OptionalLong.of(snap.timeMillis())));
+    }
+
+    private static Optional<ResolvedVersion> resolveFallbackBranchVersion(
+            FileStoreTable other, Map<String, String> scanOptions, String fallbackPath,
+            OptionalLong mainSnapshotMillis) {
+        if (other instanceof FallbackReadFileStoreTable) {
+            // Chain tables nest a ChainGroupReadTable (snapshotBranch, deltaBranch) as pair.other();
+            // mirror capture() by walking both branches so delta-branch commits invalidate SQL cache.
+            FallbackReadFileStoreTable nested = (FallbackReadFileStoreTable) other;
+            Optional<ResolvedVersion> first = resolveFallbackBranchVersion(
+                    nested.wrapped(), scanOptions, fallbackPath, mainSnapshotMillis);
+            if (!first.isPresent()) {
+                return Optional.empty();
+            }
+            Optional<ResolvedVersion> second = resolveFallbackBranchVersion(
+                    nested.other(), scanOptions, fallbackPath + "fallback.", first.get().mainSnapshotMillis);
+            if (!second.isPresent()) {
+                return Optional.empty();
+            }
+            return Optional.of(new ResolvedVersion(
+                    "fallback(" + first.get().token + "," + second.get().token + ")",
+                    Math.max(first.get().updateTimeMillis, second.get().updateTimeMillis),
+                    first.get().mainSnapshotMillis));
+        }
+        if (other instanceof DelegatedFileStoreTable) {
+            return resolveFallbackBranchVersion(
+                    ((DelegatedFileStoreTable) other).wrapped(), scanOptions, fallbackPath, mainSnapshotMillis);
+        }
+        SnapshotManager manager = other.snapshotManager();
+        String pinnedFallbackSnapshot = fallbackSnapshotId(scanOptions, fallbackPath);
+        Long selectedSnapshotId;
+        if (pinnedFallbackSnapshot != null) {
+            selectedSnapshotId = Long.parseLong(pinnedFallbackSnapshot);
+        } else if (Boolean.parseBoolean(scanOptions.get(PREFIX + fallbackPath + "snapshot-absent"))) {
+            selectedSnapshotId = null;
+        } else if (mainSnapshotMillis.isPresent()) {
+            Snapshot eligible = manager.earlierOrEqualTimeMills(mainSnapshotMillis.getAsLong());
+            long candidate = eligible == null ? Snapshot.FIRST_SNAPSHOT_ID : eligible.id();
+            selectedSnapshotId = manager.snapshotExists(candidate) ? candidate : null;
+        } else {
+            selectedSnapshotId = manager.latestSnapshotId();
+        }
+        Snapshot snap = null;
+        if (selectedSnapshotId != null) {
+            if (!manager.snapshotExists(selectedSnapshotId)) {
+                return Optional.empty();
+            }
+            snap = snapshot(other, selectedSnapshotId);
+        }
+        String pinnedFallbackSchema = scanOptions.get(PREFIX + fallbackPath + "schema-id");
+        Optional<TableSchema> schema = pinnedFallbackSchema != null
+                ? readSchema(other.schemaManager(), Long.parseLong(pinnedFallbackSchema))
+                : snap != null
+                        ? readSchema(other.schemaManager(), snap.schemaId())
+                        : other.schemaManager().latest();
+        if (!schema.isPresent() || isQueryAuthEnabled(other, schema.get(), scanOptions)) {
+            return Optional.empty();
+        }
+        if (snap == null) {
+            String token = other.location() + "|schema:" + schema.get().id() + ":"
+                    + schemaDigest(schema.get()) + "|empty";
+            return Optional.of(new ResolvedVersion(token, 0L, OptionalLong.empty()));
+        }
+        String token = other.location() + "|schema:" + schema.get().id() + ":" + schemaDigest(schema.get())
+                + "|snap:" + selectedSnapshotId + ":" + digest(snap.toJson());
+        return Optional.of(new ResolvedVersion(token, snap.timeMillis(), OptionalLong.of(snap.timeMillis())));
+    }
+
+    private static Optional<TableSchema> readSchema(SchemaManager manager, long schemaId) {
+        try {
+            return Optional.of(manager.schema(schemaId));
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static final class ResolvedVersion {
+        private final String token;
+        private final long updateTimeMillis;
+        private final OptionalLong mainSnapshotMillis;
+
+        private ResolvedVersion(String token, long updateTimeMillis, OptionalLong mainSnapshotMillis) {
+            this.token = token;
+            this.updateTimeMillis = updateTimeMillis;
+            this.mainSnapshotMillis = mainSnapshotMillis;
+        }
     }
 
     private static DorisConnectorException changed() {

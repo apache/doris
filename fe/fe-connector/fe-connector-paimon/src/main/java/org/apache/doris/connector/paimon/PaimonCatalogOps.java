@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
+
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
@@ -72,6 +74,11 @@ public interface PaimonCatalogOps {
     Table getTable(Identifier identifier) throws Catalog.TableNotExistException;
 
     List<Partition> listPartitions(Identifier identifier, Table table) throws Catalog.TableNotExistException;
+
+    /** Whether listPartitions enumerates the snapshot selected on the supplied table. */
+    default boolean listsPartitionsFromSnapshot() {
+        return false;
+    }
 
     void createDatabase(String name, boolean ignoreIfExists, Map<String, String> properties)
             throws Catalog.DatabaseAlreadyExistException;
@@ -178,6 +185,11 @@ public interface PaimonCatalogOps {
      * Like the former sum of split row counts, this is not an exact count for primary-key tables.
      */
     long rowCount(Table table);
+
+    default Optional<ConnectorSqlCacheVersion> resolveSqlCacheVersion(
+            Table table, String branchName, Map<String, String> scanOptions) {
+        return PaimonSchemaPin.resolveSqlCacheVersion(table, branchName, scanOptions);
+    }
 
     void close() throws Exception;
 
@@ -328,6 +340,12 @@ public interface PaimonCatalogOps {
             // The supplied handle already contains catalog and relation policy. Reloading by identifier
             // would discard those copies before manifest enumeration reaches the final scan guard.
             return CatalogUtils.listPartitionsFromFileSystem(table);
+        }
+
+        @Override
+        public boolean listsPartitionsFromSnapshot() {
+            // REST lists by identifier. Its response can change independently of the table snapshot.
+            return restCatalog(catalog) == null;
         }
 
         static RESTCatalog restCatalog(Catalog catalog) {

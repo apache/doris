@@ -563,6 +563,54 @@ public final class PaimonScanParams {
         return options != null && Boolean.parseBoolean(options.get(PRESERVE_BOUND_SCHEMA));
     }
 
+    static java.util.OptionalLong boundSchemaId(Map<String, String> options) {
+        if (options == null) {
+            return java.util.OptionalLong.empty();
+        }
+        String schemaId = options.get(BOUND_SCHEMA_ID);
+        return schemaId == null
+                ? java.util.OptionalLong.empty()
+                : java.util.OptionalLong.of(Long.parseLong(schemaId));
+    }
+
+    static boolean hasPinnedVersion(Map<String, String> options) {
+        if (options == null || options.isEmpty()
+                || options.containsKey(CoreOptions.INCREMENTAL_BETWEEN.key())
+                || options.containsKey(CoreOptions.INCREMENTAL_BETWEEN_TIMESTAMP.key())
+                || options.containsKey(CoreOptions.SCAN_TAG_NAME.key())) {
+            return false;
+        }
+        return options.containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key())
+                || isPinnedEmptyScan(options);
+    }
+
+    static boolean supportsPartitionViewVersion(Map<String, String> options) {
+        if (!hasPinnedVersion(options) || options.containsKey(PINNED_FILE_CREATION_TIME)) {
+            return false;
+        }
+        if (!isOptionsPin(options)) {
+            return true;
+        }
+        Map<String, String> remaining = userOptions(options);
+        remaining.remove(CoreOptions.SCAN_SNAPSHOT_ID.key());
+        return remaining.isEmpty() || PaimonReaderOptions.metadataNeutralOptions().containsAll(remaining.keySet());
+    }
+
+    static Map<String, String> canonicalCacheOptions(Map<String, String> options) {
+        java.util.TreeMap<String, String> canonical = new java.util.TreeMap<>(userOptions(options));
+        if (isOptionsPin(options)) {
+            canonical.put(PINNED_OPTIONS_MARKER, Boolean.TRUE.toString());
+        }
+        if (isPinnedEmptyScan(options)) {
+            canonical.put(PINNED_EMPTY_SCAN, Boolean.TRUE.toString());
+        }
+        String fileCreationTime = options.get(PINNED_FILE_CREATION_TIME);
+        if (fileCreationTime != null) {
+            canonical.put(PINNED_FILE_CREATION_TIME, fileCreationTime);
+        }
+        return canonical;
+    }
+
     private static Map<String, String> resolvedTagOptions(Map<String, String> options, String tagName) {
         Map<String, String> resolved = new HashMap<>(options);
         INHERITED_READ_STATE_KEYS.forEach(resolved::remove);
