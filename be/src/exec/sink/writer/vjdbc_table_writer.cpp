@@ -78,6 +78,7 @@ VJdbcTableWriter::VJdbcTableWriter(const TDataSink& t_sink,
           _use_transaction(t_sink.jdbc_table_sink.use_transaction) {}
 
 Status VJdbcTableWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
+    _state = state;
     _writer = std::make_unique<VJniFormatTransformer>(state, _vec_output_expr_ctxs,
                                                       Jni::plugin::JDBC_WRITER, _writer_params);
     return _writer->open();
@@ -95,20 +96,45 @@ Status VJdbcTableWriter::write(RuntimeState* state, Block& block) {
 }
 
 Status VJdbcTableWriter::finish(RuntimeState* state) {
-    if (!_use_transaction || !_writer) {
-        return Status::OK();
-    }
-
-    // Transaction commit is handled in JdbcJniWriter.close() on the Java side.
-    // When useTransaction=true, close() calls conn.commit() before closing the connection.
+    // AsyncResultWriter invokes finish only after all queued writes completed successfully.
+    // Defer the commit decision until close so a cancellation after finish still causes rollback.
+    _successful_eos = true;
     return Status::OK();
 }
 
+Status VJdbcTableWriter::_transaction_status(Status status) {
+    // A write error remains primary even if cancellation follows it.
+    if (!status.ok()) {
+        return status;
+    }
+    status = get_writer_status();
+    // Query cancellation can reach RuntimeState before the sink calls force_close().
+    if (status.ok() && _state->is_cancelled()) {
+        status = _state->cancel_reason();
+    }
+    return status;
+}
+
 Status VJdbcTableWriter::close(Status s) {
-    if (_writer) {
+    // Open may fail before the transformer is allocated; there is then nothing to release.
+    if (!_writer) {
+        return s;
+    }
+    // Non-transactional writers retain their existing close behavior.
+    if (!_use_transaction) {
         return _writer->close();
     }
-    return Status::OK();
+    s = _transaction_status(s);
+    // This is the commit decision point. A later cancellation cannot undo a remote commit.
+    Status close_status = _writer->close(_successful_eos && s.ok());
+    // Cleanup must run even after failure, but must not hide the original execution error.
+    if (!s.ok()) {
+        if (!close_status.ok()) {
+            LOG(WARNING) << "JDBC writer cleanup also failed: " << close_status;
+        }
+        return s;
+    }
+    return close_status;
 }
 
 } // namespace doris

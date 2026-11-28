@@ -151,6 +151,7 @@ class JdbcDiagnosticsTest {
         Connection connection = proxy(Connection.class, (object, method, args) -> {
             switch (method.getName()) {
                 case "isClosed": return false;
+                case "close": return null;
                 case "commit": throw cause;
                 case "rollback":
                     rollbacks[0]++;
@@ -159,7 +160,8 @@ class JdbcDiagnosticsTest {
             }
         });
         field(writer, "conn", connection);
-        assertDiagnostic(Assertions.assertThrows(IOException.class, writer::close), cause, "close");
+        field(writer, "transactionActive", true);
+        assertDiagnostic(Assertions.assertThrows(IOException.class, () -> writer.close(true)), cause, "close");
         Assertions.assertEquals(1, rollbacks[0]);
     }
 

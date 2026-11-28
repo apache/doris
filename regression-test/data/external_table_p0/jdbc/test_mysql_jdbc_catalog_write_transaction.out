@@ -14,3 +14,6 @@ txn_batch_3	303
 txn_src	401
 txn_src_copy	402
 
+-- !rollback_visible_rows --
+2
+
