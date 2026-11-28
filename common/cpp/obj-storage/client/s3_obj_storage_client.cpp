@@ -63,6 +63,8 @@
 #include <chrono>
 #include <functional>
 #include <iterator>
+#include <string_view>
+#include <unordered_set>
 #include <utility>
 
 #include "cpp/aws_sdk.h"
@@ -104,6 +106,37 @@ std::string s3_error_message(const Aws::S3::S3Error& error, std::string_view mes
                        error.GetExceptionName(), error.GetMessage(),
                        static_cast<int>(error.GetResponseCode()),
                        static_cast<int>(error.GetErrorType()), request_id);
+}
+
+ObjStorageResponse check_deleted_objects(const DeleteObjectsRequest& request,
+                                         const DeleteObjectsResult& result) {
+    std::unordered_set<std::string_view> deleted_keys;
+    deleted_keys.reserve(result.GetDeleted().size());
+    for (const auto& deleted : result.GetDeleted()) {
+        const auto& key = deleted.GetKey();
+        deleted_keys.emplace(key.data(), key.size());
+    }
+    for (const auto& object : request.GetDelete().GetObjects()) {
+        const auto& key = object.GetKey();
+        if (!deleted_keys.contains(std::string_view(key.data(), key.size()))) {
+            // OSS can return Deleted={a} without Errors for a request containing {a,b}.
+            // Treat the unconfirmed b as a failure so the caller retains it for retry.
+            LOG(WARNING) << fmt::format(
+                    "unconfirmed object deletion, bucket: {}, key: {}, request_id: {}, "
+                    "requested: {}, confirmed: {}",
+                    request.GetBucket(), key, result.GetRequestId(),
+                    request.GetDelete().GetObjects().size(), deleted_keys.size());
+            return ObjStorageResponse {
+                    .status = {ObjStorageStatus::INTERNAL_ERROR,
+                               fmt::format("unconfirmed deletion of object {} in bucket {}, "
+                                           "request_id={}, requested={}, confirmed={}",
+                                           key, request.GetBucket(), result.GetRequestId(),
+                                           request.GetDelete().GetObjects().size(),
+                                           deleted_keys.size())},
+                    .request_id = result.GetRequestId()};
+        }
+    }
+    return ObjStorageResponse::OK();
 }
 
 } // namespace
@@ -501,7 +534,8 @@ ObjStorageResponse S3ObjStorageClient::delete_objects(const ObjStoragePath& opts
             object.SetKey(std::move(objs[i]));
             objects.emplace_back(std::move(object));
         }
-        del.WithObjects(std::move(objects)).SetQuiet(true);
+        // OSS only reports confirmed deletions in verbose mode.
+        del.WithObjects(std::move(objects));
         delete_request.SetDelete(std::move(del));
 
         auto delete_outcome = [&]() {
@@ -539,6 +573,10 @@ ObjStorageResponse S3ObjStorageClient::delete_objects(const ObjStoragePath& opts
                                            error.GetKey(), error.GetMessage(),
                                            delete_outcome.GetResult().GetRequestId())},
                     .request_id = delete_outcome.GetResult().GetRequestId()};
+        }
+        auto confirmation = check_deleted_objects(delete_request, delete_outcome.GetResult());
+        if (!confirmation.ok()) {
+            return confirmation;
         }
     }
     return ObjStorageResponse::OK();
