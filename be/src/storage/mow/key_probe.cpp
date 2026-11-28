@@ -121,8 +121,9 @@ Result<PrevSeqProbe> MowKeyProbe::probe_previous_seq_value(
                                     &loc, _mow_context->max_version, segment_caches, &rowset,
                                     /*with_rowid=*/true, &result.encoded_seq_value);
     if (st.is<KEY_NOT_FOUND>()) {
-        // lookup_row_key writes the sequence value before it checks the delete bitmap, so a key
-        // whose only row is already marked deleted lands here with that row's value attached.
+        // Defense in depth: lookup_row_key clears encoded_seq_value when skipping a
+        // bitmap-deleted candidate, but still clear here so a KEY_NOT_FOUND path never
+        // returns a stale sequence from a deleted-only match.
         result.encoded_seq_value.clear();
         result.outcome = ProbeOutcome {KeyProbeResult::NOT_FOUND,
                                        {},

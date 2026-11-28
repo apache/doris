@@ -634,17 +634,33 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
                 return s;
             }
-            if (s.ok() && tablet_delete_bitmap->contains_agg_with_cache_if_eligible(
-                                  {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
-                // if has sequence col, we continue to compare the sequence_id of
-                // all rowsets, util we find an existing key.
-                if (schema->has_sequence_col()) {
+            // Visibility must be checked for both OK and KEY_ALREADY_EXISTS.
+            // KEY_ALREADY_EXISTS means Segment::lookup_row_key found a physical row whose
+            // sequence is strictly greater than the probe key. That row may already be in the
+            // tablet delete bitmap (e.g. a lower-seq flexible partial update that lost at
+            // publish). Checking only OK let such a deleted match short-circuit the scan and
+            // return before an older visible row was considered, so a later partial update
+            // could inherit the deleted row's sequence and leave two visible versions of the
+            // same Unique Key (#70873).
+            if ((s.ok() || s.is<KEY_ALREADY_EXISTS>()) &&
+                tablet_delete_bitmap->contains_agg_with_cache_if_eligible(
+                        {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
+                // Segment::lookup_row_key fills loc.row_id (physical id on cluster-key tables)
+                // and encoded_seq_value for both OK and KEY_ALREADY_EXISTS before returning.
+                // Drop the sequence so a skipped deleted candidate cannot leak into
+                // KEY_NOT_FOUND / a later visible match.
+                if (encoded_seq_value != nullptr) {
+                    encoded_seq_value->clear();
+                }
+                // Keep scanning when the table has a sequence column, or when the deleted
+                // hit was KEY_ALREADY_EXISTS: an older visible row may still exist. Without
+                // a sequence column, an OK hit that is already deleted means the key is gone.
+                if (schema->has_sequence_col() || s.is<KEY_ALREADY_EXISTS>()) {
                     continue;
                 }
-                // The key is deleted, we don't need to search for it any more.
                 break;
             }
-            // `st` is either OK or KEY_ALREADY_EXISTS now.
+            // `s` is either OK or KEY_ALREADY_EXISTS for a visible row now.
             // for partial update, even if the key is already exists, we still need to
             // read it's original values to keep all columns align.
             *row_location = loc;
