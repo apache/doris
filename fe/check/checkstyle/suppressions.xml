@@ -89,6 +89,8 @@ under the License.
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]IcebergLabelsDataTask\.java" checks="ImportControl"/>
     <!-- Iceberg package access is required to override ResolvingFileIO.implFromLocation; other checks apply. -->
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]io[\\/]NativeGcsResolvingFileIO\.java" checks="ImportControl"/>
+    <!-- SDK metadata task accessors are package-private. -->
+    <suppress files="org[\\/]apache[\\/]iceberg[\\/]DorisMetadataTaskFileIO\.java" checks="ImportControl"/>
 
     <!-- ignore gensrc/thrift/ExternalTableSchema.thrift -->
     <suppress files=".*thrift/schema/external/.*" checks=".*"/>

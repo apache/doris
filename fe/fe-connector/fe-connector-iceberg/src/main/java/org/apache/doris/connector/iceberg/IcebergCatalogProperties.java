@@ -162,6 +162,7 @@ public final class IcebergCatalogProperties {
         // passed, and the bound instance is deliberately not kept -- it was built without storage and must
         // not be mistaken for the one the HMS catalog build needs.
         MetaStoreProviders.bindForType(flavor, raw, Collections.emptyMap()).validate();
+        IcebergGoogleCredentialValidator.validate(raw);
         return this;
     }
 

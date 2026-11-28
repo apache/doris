@@ -273,13 +273,10 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     @Override
     public Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
-        // Map the per-table vended token to the BE-facing AWS_* properties. Fail-soft (empty) on any
-        // error, matching the legacy provider, so a malformed token degrades gracefully rather than
-        // killing the scan. The outer try also covers getBackendPropertiesFromStorageMap so the
-        // fail-soft boundary is byte-identical to the pre-refactor method; buildVendedStorageMap shares
-        // the typed-map build with normalizeStorageUri (single source of truth — no drift).
+        // Explicit null GCS OAuth fields must escape the legacy fail-soft boundary, or an empty overlay
+        // would keep the catalog's base identity. Other storage normalization retains its existing behavior.
+        Map<StorageTypeId, StorageAdapter> map = buildVendedStorageMap(rawVendedCredentials);
         try {
-            Map<StorageTypeId, StorageAdapter> map = buildVendedStorageMap(rawVendedCredentials);
             return map == null ? Collections.emptyMap()
                     : CredentialUtils.getBackendPropertiesFromStorageMap(map);
         } catch (Exception e) {
@@ -296,13 +293,16 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
      * ({@link #vendStorageCredentials}) and the URI normalization ({@link #normalizeStorageUri(String,
      * Map)}) derive the SAME credentials from the SAME token — no drift. Returns {@code null} when the
      * token is null/empty, yields no cloud-storage props, or normalization throws — replicating the
-     * legacy "return null → fall back to the base/static map" contract.
+     * legacy "return null → fall back to the base/static map" contract, except explicit null GCS
+     * OAuth fields, which fail before filtering can erase their presence.
      */
     private Map<StorageTypeId, StorageAdapter> buildVendedStorageMap(
             Map<String, String> rawVendedCredentials) {
         if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
             return null;
         }
+        // Null filtering must not turn an explicitly unusable table credential into a missing credential.
+        CredentialUtils.validateVendedCredentialPresence(rawVendedCredentials);
         try {
             Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawVendedCredentials);
             if (filtered.isEmpty()) {

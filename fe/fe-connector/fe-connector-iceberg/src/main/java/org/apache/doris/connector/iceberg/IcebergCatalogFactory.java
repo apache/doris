@@ -40,6 +40,7 @@ import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.HttpClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.io.NativeGcsResolvingFileIO;
+import org.apache.iceberg.io.ResolvingFileIO;
 import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
@@ -424,6 +425,8 @@ public final class IcebergCatalogFactory {
     public static Map<String, String> buildCatalogProperties(IcebergCatalogProperties catalogProps,
             Optional<S3CompatibleFileSystemProperties> chosenS3, boolean metaCacheWeightLimited) {
         Map<String, String> props = catalogProps.getRaw();
+        // Replayed catalogs bypass statement validation; check before credential JSON reaches the SDK.
+        IcebergGoogleCredentialValidator.validate(props);
         String flavor = catalogProps.getFlavor();
         Map<String, String> opts = buildBaseCatalogProperties(props, metaCacheWeightLimited);
         opts.put(CatalogProperties.CATALOG_IMPL, resolveCatalogImpl(flavor));
@@ -511,6 +514,28 @@ public final class IcebergCatalogFactory {
         // The iceberg SDK forbids both "type" and "catalog-impl"; legacy buildIcebergCatalog removes "type".
         opts.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
         return opts;
+    }
+
+    static void preserveHadoopGcsFileIO(IcebergCatalogProperties catalogProps,
+            Map<String, String> options, Configuration conf) {
+        boolean rest = IcebergCatalogProperties.TYPE_REST.equals(catalogProps.getFlavor());
+        String ioImpl = options.get(CatalogProperties.FILE_IO_IMPL);
+        if (!ResolvingFileIO.class.getName().equals(ioImpl) && !(rest && ioImpl == null)) {
+            return;
+        }
+        if (rest) {
+            // Generic resolvers must validate table-load credentials, which arrive after catalog initialization.
+            options.put(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
+            return;
+        }
+        // Effective configuration includes XML resources absent from the raw catalog map. An explicit
+        // generic resolver must consume that configured identity rather than silently switching to ADC.
+        for (Map.Entry<String, String> entry : conf) {
+            if (entry.getKey().startsWith("fs.gs.")) {
+                options.put(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
+                return;
+            }
+        }
     }
 
     private static boolean hasRawGcsHadoopProperties(Map<String, String> props) {

@@ -46,6 +46,20 @@ public class CredentialUtils {
             "iceberg.rest."  // Iceberg REST catalog properties (e.g., iceberg.rest.access-key-id)
     ));
 
+    private static final String[] GCS_OAUTH_FIELDS = {
+            "gs.oauth2.token", "gs.oauth2.token-expires-at", "gcs.oauth2.token", "gcs.oauth2.token-expires-at"
+    };
+
+    public static void validateVendedCredentialPresence(Map<String, String> rawVendedCredentials) {
+        // Scoped SDK configs are flattened here, so token syntax belongs to path-aware FileIO validation.
+        // Reject only explicit nulls before filtering erases them; SDK scoped credentials cannot contain nulls.
+        for (String key : GCS_OAUTH_FIELDS) {
+            if (rawVendedCredentials.containsKey(key) && rawVendedCredentials.get(key) == null) {
+                throw new IllegalArgumentException("Invalid vended GCS credential: " + key);
+            }
+        }
+    }
+
     /**
      * Filter cloud storage properties from raw vended credentials
      * Only keeps properties with supported cloud storage prefixes

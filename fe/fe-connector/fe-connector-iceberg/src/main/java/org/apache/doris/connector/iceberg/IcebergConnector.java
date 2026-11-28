@@ -1089,6 +1089,8 @@ public class IcebergConnector implements Connector {
                 break;
         }
 
+        IcebergCatalogFactory.preserveHadoopGcsFileIO(catalogProps, catalogOptions, conf);
+
         // Every REST catalog (plain or iceberg.rest.session=user) is built as a session-aware RESTSessionCatalog
         // (not the all-in-one RESTCatalog) wrapped for 401 re-authentication. The default (non-delegated) catalog
         // is asCatalog(empty), identical to what a RESTCatalog exposes; wrapping it recovers a catalog-identity
