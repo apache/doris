@@ -364,13 +364,6 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
-    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
-        Status status = OperatorX<LocalStateType>::get_block(state, block, eos);
-        if (status.ok()) {
-            state->get_local_state(operator_id())->update_output_block_counters(*block);
-        }
-        return status;
-    }
     [[nodiscard]] bool is_source() const override { return true; }
 
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state) override;
