@@ -75,7 +75,7 @@ public:
                     int64_t seg_id, InvertedIndexStorageFormatPB storage_format,
                     io::FileWriterPtr file_writer = nullptr, bool can_use_ram_dir = true,
                     int64_t tablet_id = -1);
-    virtual ~IndexFileWriter();
+    virtual ~IndexFileWriter() = default;
 
     MOCK_FUNCTION Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
     // The directory an ANN index is built into. Separate from open() because the
