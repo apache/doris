@@ -303,20 +303,23 @@ struct AggregateFunctionTopNImplWeight {
                     assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[2])
                             ->get_element(row_num));
         }
+        auto weight = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
+                              .get_data()[row_num];
+        // These weights are frequency increments. A weight of -1 must not become UINT64_MAX.
+        if (weight < 0) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "topn_weighted weight must be nonnegative, but was {}", weight);
+        }
         if constexpr (is_string_type(T)) {
-            auto weight = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
-                                  .get_data()[row_num];
             place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                               .get_data_at(row_num),
-                      weight);
+                      static_cast<UInt64>(weight));
         } else {
             typename PrimitiveTypeTraits<T>::CppType val =
                     assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                 TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data()[row_num];
-            auto weight = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
-                                  .get_data()[row_num];
-            place.add(val, weight);
+            place.add(val, static_cast<UInt64>(weight));
         }
     }
 };

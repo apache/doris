@@ -47,6 +47,38 @@ protected:
     Arena _agg_arena_pool;
 };
 
+TEST_F(AggTopNTest, NegativeWeightIsRejectedBeforeUnsignedConversion) {
+    // One row is sufficient to exercise the invalid increment. Both value types use this path.
+    auto number = ColumnInt32::create();
+    number->insert_value(1);
+    auto text = ColumnString::create();
+    text->insert_data("a", 1);
+    auto weight = ColumnInt64::create();
+    weight->insert_value(-1);
+    auto count = ColumnInt32::create();
+    count->insert_value(1);
+    auto expansion = ColumnInt32::create();
+    expansion->insert_value(1);
+    const IColumn* columns[] = {number.get(), weight.get(), count.get(), expansion.get()};
+    AggregateFunctionTopNData<TYPE_INT> numeric_state;
+    using Numeric = AggregateFunctionTopNImplWeight<TYPE_INT, false>;
+    using NumericWithExpansion = AggregateFunctionTopNImplWeight<TYPE_INT, true>;
+    EXPECT_THROW(Numeric::add(numeric_state, columns, 0), Exception);
+    EXPECT_THROW(NumericWithExpansion::add(numeric_state, columns, 0), Exception);
+    EXPECT_TRUE(numeric_state.counter_map.empty());
+    columns[0] = text.get();
+    AggregateFunctionTopNData<TYPE_STRING> text_state;
+    using Text = AggregateFunctionTopNImplWeight<TYPE_STRING, false>;
+    using TextWithExpansion = AggregateFunctionTopNImplWeight<TYPE_STRING, true>;
+    EXPECT_THROW(Text::add(text_state, columns, 0), Exception);
+    EXPECT_THROW(TextWithExpansion::add(text_state, columns, 0), Exception);
+    EXPECT_TRUE(text_state.counter_map.empty());
+    // Zero is still a valid increment and does not add a positive frequency.
+    weight->get_data()[0] = 0;
+    EXPECT_NO_THROW(Text::add(text_state, columns, 0));
+    EXPECT_EQ(text_state.counter_map.at("a"), 0);
+}
+
 // String keys are binary, so an embedded NUL must not terminate the JSON key.
 TEST_F(AggTopNTest, test_string_key_with_embedded_nul) {
     DataTypes data_types = {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
