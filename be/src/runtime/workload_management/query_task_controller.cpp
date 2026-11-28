@@ -19,10 +19,13 @@
 
 #include <algorithm>
 
+#include "common/exception.h"
+#include "exec/operator/spill_utils.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "runtime/query_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/task_controller.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -187,13 +190,20 @@ Status QueryTaskController::revoke_memory() {
 
     std::weak_ptr<QueryContext> this_ctx = query_ctx;
     auto spill_context = std::make_shared<SpillContext>(
-            chosen_tasks.size(), query_ctx->query_id(), [this_ctx, this](SpillContext* context) {
+            chosen_tasks.size(), query_ctx->query_id(), [this_ctx](SpillContext* context) {
+                // Submission failures are cancelled by the caller after releasing
+                // the query's pipeline-map lock. Resuming here could reenter cancel
+                // under that lock and replace the original submission error.
+                if (context->submission_failed()) {
+                    return;
+                }
                 auto query_context = this_ctx.lock();
                 if (!query_context) {
                     return;
                 }
 
-                LOG(INFO) << debug_string() << ", context: " << ((void*)context)
+                LOG(INFO) << query_context->resource_ctx()->task_controller()->debug_string()
+                          << ", context: " << ((void*)context)
                           << " all spill tasks done, resume it.";
                 query_context->set_memory_sufficient(true);
             });
@@ -203,8 +213,24 @@ Status QueryTaskController::revoke_memory() {
             ((void*)spill_context.get()), PrettyPrinter::print_bytes(revoked_size),
             PrettyPrinter::print_bytes(total_revokable_size), chosen_tasks.size(), tasks.size());
 
-    for (auto* task : chosen_tasks) {
-        RETURN_IF_ERROR(task->revoke_memory(spill_context));
+    size_t next = 0;
+    Defer unsubmitted_defer {[&]() {
+        // With three selected tasks and rejection at task 2, task 2 owns its
+        // completion; only task 3 remains the dispatcher's responsibility.
+        while (next < chosen_tasks.size()) {
+            ++next;
+            spill_context->on_task_finished();
+        }
+    }};
+    try {
+        while (next < chosen_tasks.size()) {
+            auto* task = chosen_tasks[next++];
+            RETURN_IF_ERROR(task->revoke_memory(spill_context));
+        }
+    } catch (const Exception& e) {
+        // Scheduler lookup can throw as well as submission returning a Status.
+        // Route the original error through the same outer cancellation path.
+        return e.to_status();
     }
     return Status::OK();
 }

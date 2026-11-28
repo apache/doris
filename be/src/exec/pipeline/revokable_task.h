@@ -37,7 +37,7 @@ public:
     RevokableTask(PipelineTaskSPtr task, std::shared_ptr<SpillContext> spill_context)
             : _task(std::move(task)), _spill_context(std::move(spill_context)) {}
 
-    ~RevokableTask() override = default;
+    ~RevokableTask() override;
 
     RuntimeState* runtime_state() const override { return _task->runtime_state(); }
 
@@ -61,7 +61,7 @@ public:
 
     std::string task_name() const override { return _task->task_name(); }
 
-    Status execute(bool* done) override { return _task->do_revoke_memory(_spill_context); }
+    Status execute(bool* done) override;
 
     // Use blockable to make sure the task will be submiited to the blockable task queue and can be revoked when necessary.
     bool is_blockable() const override { return true; }

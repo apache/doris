@@ -62,12 +62,21 @@ struct SpillContext {
         }
     }
 
+    // A failed dispatch still completes its accounting, but the caller must cancel
+    // with the submission error instead of resuming normal execution.
+    void mark_submission_failed() { _submission_failed = true; }
+    bool submission_failed() const { return _submission_failed.load(); }
+
     void on_task_finished() {
         auto count = running_tasks_count.fetch_sub(1);
+        DCHECK_GT(count, 0);
         if (count == 1) {
             all_tasks_finished_callback(this);
         }
     }
+
+private:
+    std::atomic_bool _submission_failed {false};
 };
 
 template <bool accumulating>
