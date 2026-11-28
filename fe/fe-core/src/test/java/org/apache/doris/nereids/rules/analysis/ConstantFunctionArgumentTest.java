@@ -160,6 +160,15 @@ public class ConstantFunctionArgumentTest {
     }
 
     @Test
+    public void testWidthBucketCountRange() {
+        // This negative LARGEINT wraps to 1. Check the original value before signature coercion.
+        assertAnalysisError("select width_bucket(-1, -1, 0, -18446744073709551615)",
+                "number of buckets must be between");
+        assertAnalysisError("select width_bucket(0, -1, 0, 9223372036854775807)",
+                "number of buckets must be between");
+    }
+
+    @Test
     public void testScalarFunctionArgumentsAreNotFoldedByAnalysis() {
         // only the rewrite folds an argument whose value the signature does not depend on
         assertFoldedByRewrite("select sha2('abc', 200 + 56)", Sha2.class, 1);

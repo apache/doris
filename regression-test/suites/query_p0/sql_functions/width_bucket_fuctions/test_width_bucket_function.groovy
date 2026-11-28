@@ -92,7 +92,8 @@ suite("test_width_bucket_function", "arrow_flight_sql") {
 
     test {
       sql "select width_bucket(4, 0, 8, 0)"
-      exception "buckets must be a positive integer value"
+      // FE now reports the full range before coercion. Zero remains invalid.
+      exception "number of buckets must be between"
     }
 
 

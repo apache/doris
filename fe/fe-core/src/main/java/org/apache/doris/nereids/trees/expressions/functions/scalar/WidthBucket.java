@@ -19,9 +19,11 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -77,6 +79,13 @@ public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSig
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        // Check the original integer. Narrowing a negative LARGEINT can produce a valid positive value.
+        Expression value = FoldConstantRuleOnFE.evaluateWithoutContext(getArgument(3));
+        if (value instanceof IntegerLikeLiteral
+                && !((IntegerLikeLiteral) value).isValueInRange(1, Long.MAX_VALUE - 1)) {
+            throw new AnalysisException("The number of buckets must be between 1 and 9223372036854775806, but was "
+                    + value.toSql());
+        }
         if (!getArgument(3).isConstant()) {
             throw new AnalysisException("The fourth argument of WidthBucket must be a constant.");
         }
