@@ -72,7 +72,6 @@ public:
     bool is_kerberos() const { return kerberos_login; }
     Status check_krb_params();
 
-    Status set_kerberos_ticket_cache();
     void set_hdfs_conf(const std::string& key, const std::string& val);
     std::string get_hdfs_conf_value(const std::string& key, const std::string& default_val) const;
     void set_hdfs_conf_to_hdfs_builder();
