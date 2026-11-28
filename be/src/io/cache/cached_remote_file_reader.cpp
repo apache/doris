@@ -495,13 +495,16 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlock::Range
     if (all_tried) {
         manager->record_peer_all_miss(tablet_id);
     }
-    std::unique_lock<bthread::Mutex> lk(race->mtx);
-    race->peer_done = true;
-    race->peer_status = Status::InternalError<false>("peer: all candidates failed");
-    if (race->winner < 0 && race->s3_done) {
-        race->winner = race->s3_status.ok() ? 1 : -2;
+    {
+        std::unique_lock<bthread::Mutex> lk(race->mtx);
+        race->peer_done = true;
+        race->peer_status = Status::InternalError<false>("peer: all candidates failed");
+        if (race->winner < 0 && race->s3_done) {
+            race->winner = race->s3_status.ok() ? 1 : -2;
+        }
+        race->cv.notify_all();
     }
-    race->cv.notify_all();
+    TEST_SYNC_POINT("run_peer_race::peer_failed");
 }
 
 // Apply hedge delay, then submit S3 read to the thread pool (or run inline).

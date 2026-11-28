@@ -43,6 +43,7 @@
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
+#include "io/cache/peer_file_cache_reader.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
@@ -1125,6 +1126,9 @@ void CloudWarmUpManager::run_cleanup_loop() {
                 }
             }
         }
+
+        // Reclaim sharded peer bRPC connection pools for retired or idle peer addresses.
+        io::PeerFileCacheReader::evict_idle_connections(expiry_ms);
     }
 }
 
