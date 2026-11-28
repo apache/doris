@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.lance;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
+
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.ArrayList;
@@ -31,12 +33,15 @@ final class LanceTableMetadata {
     private final long version;
     private final Schema schema;
     private final List<LanceFragmentInfo> fragments;
+    private final List<String> basePaths;
 
-    LanceTableMetadata(LanceTableAccess access, long version, Schema schema, List<LanceFragmentInfo> fragments) {
+    LanceTableMetadata(LanceTableAccess access, long version, Schema schema, List<LanceFragmentInfo> fragments,
+            List<String> basePaths) {
         this.access = Objects.requireNonNull(access, "access");
         this.version = version;
         this.schema = Objects.requireNonNull(schema, "schema");
         this.fragments = Collections.unmodifiableList(new ArrayList<>(fragments));
+        this.basePaths = Collections.unmodifiableList(new ArrayList<>(basePaths));
     }
 
     String getDatasetUri() {
@@ -54,6 +59,27 @@ final class LanceTableMetadata {
     /** The fragments of this version in manifest order. */
     List<LanceFragmentInfo> getFragments() {
         return fragments;
+    }
+
+    /** Checked only when projecting BLOBs: their FILE references can be consumed on another BE. */
+    void validateBlobStorage() {
+        if (isLocalStorage(getDatasetUri())) {
+            throw new DorisConnectorException("Lance BLOB reads require a remote dataset");
+        }
+        for (String basePath : basePaths) {
+            if (isLocalStorage(basePath)) {
+                throw new DorisConnectorException("Local Lance BLOB base paths are not supported");
+            }
+        }
+    }
+
+    private static boolean isLocalStorage(String path) {
+        int schemeEnd = path.indexOf("://");
+        if (schemeEnd <= 0) {
+            return true;
+        }
+        String scheme = path.substring(0, schemeEnd);
+        return scheme.equalsIgnoreCase("file") || scheme.equalsIgnoreCase("memory");
     }
 
     /** Lance object-store options, understood as-is by both the FE SDK and lance-c. */

@@ -219,6 +219,8 @@ public final class ConnectorColumnConverter {
             // Preserve the execution carrier on the reverse write-schema path; reporting ordinary
             // VARIANT would make an unchanged external schema look concurrently modified.
             return ConnectorType.of("VARIANT_COMPUTE_V2");
+        } else if (dorisType.isFileType()) {
+            return ConnectorType.of("FILE");
         } else if (dorisType instanceof ArrayType) {
             ArrayType arr = (ArrayType) dorisType;
             // Carry the element's nullability so a connector can preserve a NOT NULL ARRAY element
@@ -379,6 +381,8 @@ public final class ConnectorColumnConverter {
                     return ScalarType.createTimeV2Type(precision);
                 }
                 return ScalarType.TIMEV2;
+            case "FILE":
+                return Type.FILE;
             case "VARBINARY":
                 if (precision > 0) {
                     return ScalarType.createVarbinaryType(precision);

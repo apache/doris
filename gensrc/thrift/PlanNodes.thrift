@@ -655,10 +655,12 @@ union TExternalSearchQuery {
 // A catalog/S3 range reads fragments from a fixed snapshot. A local TVF range uses version zero
 // without fragment_ids to open the latest snapshot and scan the whole dataset on its selected BE.
 struct TLanceFileDesc {
+    // Deprecated: use TLanceScanParams.dataset_uri. Kept for legacy readers and old-FE plans.
     // URI of the Lance dataset (s3://..., file:///..., etc.)
     1: optional string dataset_uri
     // Specific fragment IDs to read (for split-level parallelism)
     2: optional list<i64> fragment_ids
+    // Deprecated: use TLanceScanParams.version. Kept for legacy readers and old-FE plans.
     // Dataset version for time travel
     3: optional i64 version
     // Per-split row limit pushed down from the query LIMIT. Each scanner returns at
@@ -849,6 +851,19 @@ struct TLanceScanParams {
     // with a static option set, so credentials that expire mid-scan are not re-vended. Renewal
     // needs a refresh channel of its own, which this field is not.
     3: optional map<string, string> lance_storage_options
+    // Common dataset identity and fixed snapshot used by query-scoped BLOB resources.
+    4: optional string dataset_uri
+    5: optional i64 version
+    // Actual Lance column name -> query-wide source ID. Zero is unbound.
+    6: optional map<string, i32> blob_read_source_ids
+}
+
+// Query-local BLOB read configuration, sent to every participating BE.
+struct TLanceBlobResource {
+    1: optional string dataset_uri
+    2: optional i64 version
+    3: optional string column_name
+    4: optional map<string, string> storage_options
 }
 
 struct TFileScanRangeParams {

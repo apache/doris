@@ -29,6 +29,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.lance.BasePath;
 import org.lance.Dataset;
 import org.lance.Fragment;
 import org.lance.ReadOptions;
@@ -261,7 +262,12 @@ final class LanceCatalogClient implements AutoCloseable {
             }
             return infos;
         });
-        return new LanceTableMetadata(access, dataset.version(), schema, fragments);
+        // Read the registry from this same snapshot, not a later open of the dataset.
+        List<String> basePaths = new ArrayList<>();
+        for (BasePath basePath : dataset.getBasePaths()) {
+            basePaths.add(basePath.getPath());
+        }
+        return new LanceTableMetadata(access, dataset.version(), schema, fragments, basePaths);
     }
 
     private static long versionAtOrBefore(Dataset latest, long timestampMillis, String requestedText,

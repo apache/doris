@@ -37,6 +37,7 @@
 #include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/pod_array_fwd.h"
 #include "core/string_buffer.hpp"
@@ -479,11 +480,44 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        if constexpr (requires { this->data(place).column_data; }) {
+            if (contains_file_type(this->argument_types[0])) {
+                // JSON exposes only FILE's six public fields. A partial collect_list state
+                // must also carry private Blob IDs, including FILE values nested in arrays.
+                const auto& data = this->data(place);
+                const auto& type = this->argument_types[0];
+                const auto bytes = type->get_uncompressed_serialized_bytes(
+                        *data.column_data, IAggregateFunction::version);
+                buf.write_binary(bytes);
+                buf.resize(bytes);
+                const auto* end =
+                        type->serialize(*data.column_data, buf.data(), IAggregateFunction::version);
+                DCHECK_EQ(end, buf.data() + bytes);
+                buf.add_offset(bytes);
+                write_var_int(data.max_size, buf);
+                return;
+            }
+        }
         this->data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
+        if constexpr (requires { this->data(place).column_data; }) {
+            if (contains_file_type(this->argument_types[0])) {
+                auto& data = this->data(place);
+                const auto& type = this->argument_types[0];
+                int64_t bytes = 0;
+                buf.read_binary(bytes);
+                data.column_data = type->create_column();
+                const auto* end = type->deserialize(buf.data(), &data.column_data,
+                                                    IAggregateFunction::version);
+                DCHECK_EQ(end, buf.data() + bytes);
+                buf.add_offset(bytes);
+                read_var_int(data.max_size, buf);
+                return;
+            }
+        }
         this->data(place).read(buf);
     }
 

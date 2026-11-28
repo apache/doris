@@ -324,7 +324,8 @@ class LanceScanPlannerTest {
     }
 
     private static LanceTableMetadata metadata(String uri, Schema schema, List<LanceFragmentInfo> fragments) {
-        return new LanceTableMetadata(new LanceTableAccess(uri, Collections.emptyMap(), false), 42, schema, fragments);
+        return new LanceTableMetadata(new LanceTableAccess(uri, Collections.emptyMap(), false), 42, schema,
+                fragments, Collections.emptyList());
     }
 
     private static LanceIndexMetadata indexes(LanceIndexSegmentInfo... segments) {

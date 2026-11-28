@@ -555,6 +555,10 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         if (params.__isset.ai_resources) {
                             query_ctx->set_ai_resources(params.ai_resources);
                         }
+                        if (params.__isset.lance_blob_resources) {
+                            RETURN_IF_ERROR(query_ctx->init_lance_blob_resources(
+                                    params.lance_blob_resources));
+                        }
 
                         RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
 

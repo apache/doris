@@ -41,10 +41,16 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lance.BasePath;
 import org.lance.Dataset;
 
 import java.io.IOException;
@@ -94,6 +100,27 @@ class LanceFileFormatNativeTest {
         Assertions.assertEquals(ConnectorType.of("BIGINT"), schema.getColumns().get(0).getType());
         Assertions.assertTrue(schema.getProperties().isEmpty());
         Assertions.assertEquals(27, metadata.getColumnHandles(session, handle).size());
+    }
+
+    @Test
+    void metadataRetainsTheSnapshotsRegisteredBases() {
+        Schema schema = new Schema(Collections.singletonList(Field.nullable("id", new ArrowType.Int(32, true))));
+        BasePath base = new BasePath(0, Optional.of("local_blobs"), warehouse.resolve("blobs").toString(), false);
+        try (BufferAllocator allocator = new RootAllocator();
+                Dataset dataset = Dataset.write().allocator(allocator).schema(schema)
+                        .uri(warehouse.resolve("with_bases.lance").toString())
+                        .initialBases(Collections.singletonList(base)).execute();
+                LanceMetadataMetrics.Timer timer = new LanceMetadataMetrics()
+                        .start(LanceMetadataMetrics.Operation.METADATA_READ)) {
+            Assertions.assertEquals(1, dataset.getBasePaths().size());
+            // Substitute a remote root without contacting it, so only the manifest's base is rejected.
+            LanceTableMetadata metadata = LanceCatalogClient.readMetadata(dataset,
+                    new LanceTableAccess("s3://warehouse/with_bases.lance", Collections.emptyMap(), false), timer);
+            Assertions.assertEquals(dataset.version(), metadata.getVersion());
+            Assertions.assertEquals("Local Lance BLOB base paths are not supported",
+                    Assertions.assertThrows(DorisConnectorException.class, metadata::validateBlobStorage)
+                            .getMessage());
+        }
     }
 
     /**

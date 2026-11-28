@@ -18,6 +18,8 @@
 #include <arrow/api.h>
 #include <gtest/gtest.h>
 
+#include <utility>
+
 #include "common/config.h"
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
@@ -26,6 +28,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "format_v2/lance/lance_reader_helper.h"
@@ -54,23 +57,31 @@ protected:
         }
     }
 
-    void read(const std::shared_ptr<arrow::Array>& array, const DataTypePtr& type,
-              MutableColumnPtr* column) {
+    Status read(const std::shared_ptr<arrow::Array>& array, const DataTypePtr& type,
+                MutableColumnPtr* output) {
         std::shared_ptr<arrow::Array> normalized;
-        ASSERT_TRUE(normalize_lance_arrow_array_for_test(arrow::field("value", array->type()),
-                                                         array, &normalized,
-                                                         arrow::default_memory_pool())
-                            .ok());
-        *column = type->create_column();
-        ASSERT_TRUE(type->get_serde()
-                            ->read_column_from_arrow(**column, normalized.get(), 0,
-                                                     normalized->length(), cctz::time_zone {})
-                            .ok());
+        RETURN_IF_ERROR(normalize_lance_arrow_array_for_test(arrow::field("value", array->type()),
+                                                             array, &normalized,
+                                                             arrow::default_memory_pool()));
+        auto column = type->create_column();
+        RETURN_IF_ERROR(type->get_serde()->read_column_from_arrow(
+                *column, normalized.get(), 0, normalized->length(), cctz::time_zone {}));
+        *output = std::move(column);
+        return Status::OK();
     }
 
 private:
     bool _old_validation;
 };
+
+TEST_F(LanceNestedNullTest, ReturnsConversionErrorWithoutPublishingPartialColumn) {
+    MutableColumnPtr column;
+    const auto status = read(std::make_shared<arrow::NullArray>(1),
+                             std::make_shared<DataTypeNothing>(), &column);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("read_column_from_arrow"), std::string::npos);
+    EXPECT_EQ(nullptr, column.get());
+}
 
 TEST_F(LanceNestedNullTest, MapsNestedNullSchemas) {
     const auto null_field = arrow::field("value", arrow::null());
@@ -146,12 +157,12 @@ TEST_F(LanceNestedNullTest, ReadsNullLeafRangesWithoutPhysicalBuffers) {
                 type->get_serde()
                         ->read_column_from_arrow(*column, source.get(), 1, 3, cctz::time_zone {})
                         .ok());
-        expect_nulls(*column, 3);
+        ASSERT_NO_FATAL_FAILURE(expect_nulls(*column, 3));
         ASSERT_TRUE(
                 type->get_serde()
                         ->read_column_from_arrow(*column, source.get(), 4, 4, cctz::time_zone {})
                         .ok());
-        expect_nulls(*column, 3);
+        ASSERT_NO_FATAL_FAILURE(expect_nulls(*column, 3));
     }
 }
 
@@ -168,7 +179,7 @@ TEST_F(LanceNestedNullTest, RejectsInvalidNullRangesBeforeAppending) {
                                  ->read_column_from_arrow(*column, &source, start, end,
                                                           cctz::time_zone {})
                                  .ok());
-            expect_nulls(*column, 1);
+            ASSERT_NO_FATAL_FAILURE(expect_nulls(*column, 1));
         }
     }
 }
@@ -182,12 +193,13 @@ TEST_F(LanceNestedNullTest, ReadsNullStructParents) {
     const auto type = make_nullable(
             std::make_shared<DataTypeStruct>(DataTypes {null_type()}, Strings {"empty"}));
     MutableColumnPtr column;
-    read(source->Slice(1, 2), type, &column);
+    const auto read_status = read(source->Slice(1, 2), type, &column);
+    ASSERT_TRUE(read_status.ok()) << read_status.to_string();
     ASSERT_NE(nullptr, column.get());
     const auto& parent = assert_cast<const ColumnNullable&>(*column);
     EXPECT_EQ((NullMap {1, 0}), parent.get_null_map_data());
     const auto& structure = assert_cast<const ColumnStruct&>(parent.get_nested_column());
-    expect_nulls(structure.get_column(0), 2);
+    ASSERT_NO_FATAL_FAILURE(expect_nulls(structure.get_column(0), 2));
 }
 
 TEST_F(LanceNestedNullTest, ReadsNullListElementsAndPreservesParentShape) {
@@ -208,7 +220,8 @@ TEST_F(LanceNestedNullTest, ReadsNullListElementsAndPreservesParentShape) {
     for (const auto& source : arrays) {
         for (bool sliced : {false, true}) {
             MutableColumnPtr column;
-            read(sliced ? source->Slice(1, 3) : source, type, &column);
+            const auto read_status = read(sliced ? source->Slice(1, 3) : source, type, &column);
+            ASSERT_TRUE(read_status.ok()) << read_status.to_string();
             ASSERT_NE(nullptr, column.get());
             const auto& parent = assert_cast<const ColumnNullable&>(*column);
             EXPECT_EQ((sliced ? NullMap {1, 0, 0} : NullMap {0, 1, 0, 0}),
@@ -217,7 +230,7 @@ TEST_F(LanceNestedNullTest, ReadsNullListElementsAndPreservesParentShape) {
             EXPECT_EQ((sliced ? ColumnArray::Offsets64 {0, 0, 3}
                               : ColumnArray::Offsets64 {2, 2, 2, 5}),
                       list.get_offsets());
-            expect_nulls(list.get_data(), sliced ? 3 : 5);
+            ASSERT_NO_FATAL_FAILURE(expect_nulls(list.get_data(), sliced ? 3 : 5));
         }
     }
 }
@@ -229,13 +242,14 @@ TEST_F(LanceNestedNullTest, ReadsFixedNullLists) {
             arrow::Buffer::Wrap(validity), 1);
     const auto type = make_nullable(std::make_shared<DataTypeArray>(null_type()));
     MutableColumnPtr column;
-    read(source->Slice(1, 2), type, &column);
+    const auto read_status = read(source->Slice(1, 2), type, &column);
+    ASSERT_TRUE(read_status.ok()) << read_status.to_string();
     ASSERT_NE(nullptr, column.get());
     const auto& parent = assert_cast<const ColumnNullable&>(*column);
     EXPECT_EQ((NullMap {1, 0}), parent.get_null_map_data());
     const auto& list = assert_cast<const ColumnArray&>(parent.get_nested_column());
     EXPECT_EQ((ColumnArray::Offsets64 {2, 4}), list.get_offsets());
-    expect_nulls(list.get_data(), 4);
+    ASSERT_NO_FATAL_FAILURE(expect_nulls(list.get_data(), 4));
 }
 
 TEST_F(LanceNestedNullTest, ReadsNullStructFieldsInsideLists) {
@@ -253,14 +267,16 @@ TEST_F(LanceNestedNullTest, ReadsNullStructFieldsInsideLists) {
             DataTypes {null_type(), DataTypeFactory::instance().create_data_type(TYPE_INT, true)},
             Strings {"empty", "id"}));
     MutableColumnPtr column;
-    read(source->Slice(1, 1), make_nullable(std::make_shared<DataTypeArray>(doris_struct)),
-         &column);
+    const auto read_status =
+            read(source->Slice(1, 1), make_nullable(std::make_shared<DataTypeArray>(doris_struct)),
+                 &column);
+    ASSERT_TRUE(read_status.ok()) << read_status.to_string();
     ASSERT_NE(nullptr, column.get());
     const auto& list = assert_cast<const ColumnArray&>(
             assert_cast<const ColumnNullable&>(*column).get_nested_column());
     const auto& result = assert_cast<const ColumnStruct&>(
             assert_cast<const ColumnNullable&>(list.get_data()).get_nested_column());
-    expect_nulls(result.get_column(0), 2);
+    ASSERT_NO_FATAL_FAILURE(expect_nulls(result.get_column(0), 2));
     const auto& id_column = assert_cast<const ColumnInt32&>(
             assert_cast<const ColumnNullable&>(result.get_column(1)).get_nested_column());
     EXPECT_EQ((ColumnInt32::Container {20, 30}), id_column.get_data());
@@ -277,13 +293,14 @@ TEST_F(LanceNestedNullTest, ReadsNullMapValues) {
     const auto type = make_nullable(std::make_shared<DataTypeMap>(
             DataTypeFactory::instance().create_data_type(TYPE_INT, true), null_type()));
     MutableColumnPtr column;
-    read(source->Slice(1, 2), type, &column);
+    const auto read_status = read(source->Slice(1, 2), type, &column);
+    ASSERT_TRUE(read_status.ok()) << read_status.to_string();
     ASSERT_NE(nullptr, column.get());
     const auto& parent = assert_cast<const ColumnNullable&>(*column);
     EXPECT_EQ((NullMap {1, 0}), parent.get_null_map_data());
     const auto& map = assert_cast<const ColumnMap&>(parent.get_nested_column());
     EXPECT_EQ((ColumnArray::Offsets64 {0, 2}), map.get_offsets());
-    expect_nulls(map.get_values(), 2);
+    ASSERT_NO_FATAL_FAILURE(expect_nulls(map.get_values(), 2));
     const auto& key_column = assert_cast<const ColumnInt32&>(
             assert_cast<const ColumnNullable&>(map.get_keys()).get_nested_column());
     EXPECT_EQ((ColumnInt32::Container {20, 30}), key_column.get_data());

@@ -22,12 +22,15 @@
 #include <arrow/c/bridge.h>
 #include <arrow/compute/cast.h>
 #include <arrow/extension_type.h>
+#include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
 #include <fmt/format.h>
 #include <lance/lance.h>
 
+#include <algorithm>
 #include <bit>
+#include <cctype>
 #include <limits>
 #include <optional>
 #include <unordered_set>
@@ -36,6 +39,7 @@
 #include "common/logging.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
@@ -43,6 +47,8 @@
 #include "core/data_type_serde/arrow_parent_nulls.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "exec/common/endian.h"
+#include "format_v2/column_data.h"
+#include "util/url_coding.h"
 
 namespace doris::format::lance {
 
@@ -59,11 +65,13 @@ constexpr std::string_view ARROW_EXTENSION_NAME = "ARROW:extension:name";
 constexpr std::string_view ARROW_JSON_EXTENSION = "arrow.json";
 constexpr std::string_view LANCE_JSON_EXTENSION = "lance.json";
 constexpr std::string_view LANCE_BFLOAT16_EXTENSION = "lance.bfloat16";
+constexpr std::string_view LANCE_BLOB_EXTENSION = "lance.blob.v2";
 
 enum class LanceExtensionKind {
     NONE,
     JSON,
     BFLOAT16,
+    BLOB,
 };
 
 int arrow_time_precision(arrow::TimeUnit::type unit) {
@@ -145,13 +153,21 @@ Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
         *extension_kind = LanceExtensionKind::BFLOAT16;
         return Status::OK();
     }
+    if (*extension_name == LANCE_BLOB_EXTENSION) {
+        if ((*storage_type)->id() != arrow::Type::STRUCT) {
+            return Status::NotSupported("Lance Blob v2 requires STRUCT storage for field '{}'",
+                                        field->name());
+        }
+        *extension_kind = LanceExtensionKind::BLOB;
+        return Status::OK();
+    }
     return Status::NotSupported("unsupported Lance Arrow extension type '{}' for field '{}'",
                                 *extension_name, field->name());
 }
 
 // Map Arrow fields recursively, preserving Null leaves in complex types.
 Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
-                                 DataTypePtr* doris_type) {
+                                 DataTypePtr* doris_type, bool top_level = false) {
     const auto nullable_primitive = [&](PrimitiveType type, int precision = 0, int scale = 0,
                                         int len = -1) {
         *doris_type =
@@ -167,6 +183,10 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
         return nullable_primitive(TYPE_JSONB);
     case LanceExtensionKind::BFLOAT16:
         return nullable_primitive(TYPE_FLOAT);
+    case LanceExtensionKind::BLOB:
+        return top_level ? nullable_primitive(TYPE_FILE)
+                         : Status::NotSupported(
+                                   "Lance BLOB currently supports only top-level scalar columns");
     case LanceExtensionKind::NONE:
         break;
     }
@@ -774,14 +794,14 @@ size_t lance_vector_element_width(TVectorElementType::type type) {
     return 0;
 }
 
-Status parse_fragment_ids(const TLanceFileDesc& lance_params, std::vector<uint64_t>* fragment_ids) {
+Status parse_fragment_ids(const TLanceFileDesc& split_params, std::vector<uint64_t>* fragment_ids) {
     DORIS_CHECK(fragment_ids != nullptr);
     fragment_ids->clear();
-    if (!lance_params.__isset.fragment_ids || lance_params.fragment_ids.empty()) {
+    if (!split_params.__isset.fragment_ids || split_params.fragment_ids.empty()) {
         return Status::OK();
     }
-    fragment_ids->reserve(lance_params.fragment_ids.size());
-    for (const auto fragment_id : lance_params.fragment_ids) {
+    fragment_ids->reserve(split_params.fragment_ids.size());
+    for (const auto fragment_id : split_params.fragment_ids) {
         if (fragment_id < 0) {
             return Status::InvalidArgument("Lance fragment id must be non-negative: {}",
                                            fragment_id);
@@ -791,28 +811,28 @@ Status parse_fragment_ids(const TLanceFileDesc& lance_params, std::vector<uint64
     return Status::OK();
 }
 
-Status parse_index_segment_uuids(const TLanceFileDesc& lance_params,
+Status parse_index_segment_uuids(const TLanceFileDesc& split_params,
                                  std::vector<uint8_t>* segment_uuids, size_t* segment_count) {
     DORIS_CHECK(segment_uuids != nullptr);
     DORIS_CHECK(segment_count != nullptr);
     segment_uuids->clear();
     *segment_count = 0;
-    if (!lance_params.__isset.index_segment_uuids || lance_params.index_segment_uuids.empty()) {
+    if (!split_params.__isset.index_segment_uuids || split_params.index_segment_uuids.empty()) {
         return Status::OK();
     }
     constexpr size_t UUID_SIZE = 16;
-    if (lance_params.index_segment_uuids.size() > std::numeric_limits<size_t>::max() / UUID_SIZE) {
+    if (split_params.index_segment_uuids.size() > std::numeric_limits<size_t>::max() / UUID_SIZE) {
         return Status::InvalidArgument("too many Lance index segment UUIDs");
     }
-    segment_uuids->reserve(lance_params.index_segment_uuids.size() * UUID_SIZE);
-    for (const auto& uuid : lance_params.index_segment_uuids) {
+    segment_uuids->reserve(split_params.index_segment_uuids.size() * UUID_SIZE);
+    for (const auto& uuid : split_params.index_segment_uuids) {
         if (uuid.size() != UUID_SIZE) {
             return Status::InvalidArgument("Lance index segment UUID must contain 16 bytes, got {}",
                                            uuid.size());
         }
         segment_uuids->insert(segment_uuids->end(), uuid.begin(), uuid.end());
     }
-    *segment_count = lance_params.index_segment_uuids.size();
+    *segment_count = split_params.index_segment_uuids.size();
     return Status::OK();
 }
 
@@ -834,7 +854,7 @@ Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow
             return Status::InvalidArgument("duplicate Lance schema column: {}", field->name());
         }
         DataTypePtr doris_type;
-        const auto type_status = arrow_field_to_doris_type(field, &doris_type);
+        const auto type_status = arrow_field_to_doris_type(field, &doris_type, true);
         if (type_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
             parsed_types.emplace_back(std::make_shared<DataTypeNothing>());
         } else {
@@ -857,7 +877,14 @@ Status build_lance_storage_options(const TFileScanRangeParams* scan_params,
         !scan_params->lance_scan_params.__isset.lance_storage_options) {
         return Status::OK();
     }
-    const auto& storage_options = scan_params->lance_scan_params.lance_storage_options;
+    return build_lance_storage_options(scan_params->lance_scan_params.lance_storage_options,
+                                       options);
+}
+
+Status build_lance_storage_options(const std::map<std::string, std::string>& storage_options,
+                                   std::vector<std::string>* options) {
+    DORIS_CHECK(options != nullptr);
+    options->clear();
     options->reserve(storage_options.size() * 2);
     for (const auto& [key, value] : storage_options) {
         // Both values cross a C-string boundary. Reject embedded NULs instead of silently opening
@@ -883,6 +910,176 @@ Status lance_error(std::string_view operation) {
         message = fmt::format("error_code={}", static_cast<int>(lance_last_error_code()));
     }
     return Status::InternalError("{} failed: {}", operation, message);
+}
+
+bool has_dataset_identity(const TFileScanRangeParams& scan_params) {
+    return scan_params.__isset.lance_scan_params &&
+           (scan_params.lance_scan_params.__isset.dataset_uri ||
+            scan_params.lance_scan_params.__isset.version);
+}
+
+Status set_legacy_dataset_identity(const TFileRangeDesc& range, TFileScanRangeParams* scan_params) {
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.lance_params ||
+        !range.table_format_params.lance_params.__isset.dataset_uri ||
+        !range.table_format_params.lance_params.__isset.version) {
+        return Status::InvalidArgument("Old FE Lance split has no dataset URI or version");
+    }
+    const auto& legacy = range.table_format_params.lance_params;
+    scan_params->__isset.lance_scan_params = true;
+    scan_params->lance_scan_params.__set_dataset_uri(legacy.dataset_uri);
+    scan_params->lance_scan_params.__set_version(legacy.version);
+    return Status::OK();
+}
+
+Status validate_dataset_params(const TFileScanRangeParams& scan_params) {
+    const auto& lance = scan_params.lance_scan_params;
+    if (!scan_params.__isset.lance_scan_params || !lance.__isset.dataset_uri ||
+        lance.dataset_uri.empty() || lance.dataset_uri.find('\0') != std::string::npos ||
+        !lance.__isset.version || lance.version < 0) {
+        return Status::InvalidArgument(
+                "Lance scans require a dataset URI and a non-negative version in TLanceScanParams");
+    }
+    return Status::OK();
+}
+// A Lance version of 0 opens the latest version, which would silently leave the snapshot FE
+// planned. Searches and row-id fetches require FE's pinned version in the scan parameters.
+Status require_fixed_version(const TLanceScanParams& params, std::string_view what) {
+    if (!params.__isset.version || params.version <= 0) {
+        return Status::InvalidArgument(
+                "Lance {} requires a fixed positive dataset version, but got {}", what,
+                params.__isset.version ? std::to_string(params.version) : std::string("none"));
+    }
+    return Status::OK();
+}
+bool lance_blob_storage_is_local(std::string_view uri) {
+    const auto end = uri.find("://");
+    if (end == std::string_view::npos || end == 0) {
+        return true;
+    }
+    std::string scheme(uri.substr(0, end));
+    std::ranges::transform(scheme, scheme.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return scheme == "file" || scheme == "memory";
+}
+
+Status convert_lance_blob_descriptors_to_file_column(
+        const std::shared_ptr<arrow::Array>& descriptors, const std::vector<uint64_t>& row_ids,
+        const ColumnDefinition& column, uint32_t source_id, MutableColumnPtr* output) {
+    if (source_id == 0) {
+        return Status::InvalidArgument("Lance BLOB source ID was not assigned by FE");
+    }
+    const auto values = std::dynamic_pointer_cast<arrow::StructArray>(descriptors);
+    if (!values || values->length() != row_ids.size()) {
+        return Status::Corruption("Missing or misaligned Lance BLOB descriptors for '{}'",
+                                  column.name);
+    }
+    const auto kinds = std::dynamic_pointer_cast<arrow::UInt8Array>(values->GetFieldByName("kind"));
+    const auto sizes =
+            std::dynamic_pointer_cast<arrow::UInt64Array>(values->GetFieldByName("size"));
+    const auto base_ids =
+            std::dynamic_pointer_cast<arrow::UInt32Array>(values->GetFieldByName("blob_id"));
+    const auto uris =
+            std::dynamic_pointer_cast<arrow::StringArray>(values->GetFieldByName("blob_uri"));
+    if (!kinds || !sizes || !base_ids || !uris) {
+        return Status::Corruption("Invalid Lance Blob v2 descriptor schema for '{}'", column.name);
+    }
+    auto result = column.type->create_column();
+    result->reserve(row_ids.size());
+    for (size_t row = 0; row < row_ids.size(); ++row) {
+        // Native Blob v2 treats either the struct or its kind child being NULL as a NULL Blob.
+        if (values->IsNull(row) || kinds->IsNull(row)) {
+            if (!column.type->is_nullable()) {
+                return Status::Corruption("NULL in required Lance BLOB column '{}'", column.name);
+            }
+            result->insert_default();
+            continue;
+        }
+        const auto kind = kinds->Value(row);
+        if (kind > 3 || sizes->IsNull(row)) {
+            return Status::Corruption("Invalid Lance BLOB descriptor for '{}'", column.name);
+        }
+        const bool external = kind == 3;
+        if (external) {
+            if (base_ids->IsNull(row) || uris->IsNull(row)) {
+                return Status::Corruption("Invalid external Lance BLOB descriptor");
+            }
+            // Registered bases were inspected by FE in the pinned snapshot. An absolute external
+            // reference (base ID 0) can additionally point to a BE-local object.
+            if (base_ids->Value(row) == 0 && lance_blob_storage_is_local(uris->GetView(row))) {
+                return Status::NotSupported("Local external Lance BLOB objects are not supported");
+            }
+        }
+        File file(DataTypeFile::FIELD_COUNT);
+        auto uri = fmt::format("lance-blob://{}", row_ids[row]);
+        if (!uris->IsNull(row) && uris->value_length(row) > 0) {
+            std::string encoded_blob_uri;
+            url_encode(uris->GetView(row), &encoded_blob_uri);
+            uri.append("?blob_uri=").append(encoded_blob_uri);
+        }
+        file[DataTypeFile::URI_FIELD_INDEX] = Field::create_field<TYPE_STRING>(std::move(uri));
+        const auto size = sizes->Value(row);
+        // External size=0 is a native "resolve object length" marker, not necessarily empty.
+        // The physical position is deliberately not exposed as FILE.offset.
+        if (!external || size != 0) {
+            if (size > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+                return Status::Corruption("Lance BLOB size exceeds BIGINT");
+            }
+            file[DataTypeFile::SIZE_FIELD_INDEX] =
+                    Field::create_field<TYPE_BIGINT>(static_cast<int64_t>(size));
+        }
+        file.blob_source_id = source_id;
+        file.blob_row_id = row_ids[row];
+        result->insert(Field::create_field<TYPE_FILE>(std::move(file)));
+    }
+    *output = std::move(result);
+    return Status::OK();
+}
+
+Status build_lance_blob_descriptor_columns(
+        const std::shared_ptr<arrow::RecordBatch>& batch,
+        const std::vector<ColumnDefinition>& projected_columns,
+        const std::map<std::string, int32_t>& source_ids,
+        std::unordered_map<std::string, MutableColumnPtr>* blob_columns) {
+    if (batch->num_rows() != 0) {
+        auto row_ids = std::dynamic_pointer_cast<arrow::UInt64Array>(
+                batch->GetColumnByName(std::string(LANCE_ROW_ID_COLUMN)));
+        if (row_ids == nullptr || row_ids->null_count() != 0 ||
+            row_ids->length() != batch->num_rows()) {
+            return Status::InternalError(
+                    "Lance BLOB materialization requires aligned non-NULL row IDs");
+        }
+        std::vector<uint64_t> ids;
+        ids.reserve(row_ids->length());
+        for (int64_t row = 0; row < row_ids->length(); ++row) {
+            ids.push_back(row_ids->Value(row));
+        }
+        // Row-ID fetch RPCs use a temporary RuntimeState without a QueryContext. FE already
+        // froze the source IDs in these scan parameters; payload consumption uses the receiving
+        // query's resource map later, independently of this reader's lifetime.
+        for (const auto& column : projected_columns) {
+            if (remove_nullable(column.type)->get_primitive_type() != TYPE_FILE) {
+                continue;
+            }
+            const auto id = source_ids.find(column.name);
+            if (id == source_ids.end() || id->second <= 0) {
+                return Status::InvalidArgument("Lance BLOB column '{}' has no FE source ID",
+                                               column.name);
+            }
+            const auto source_id = static_cast<uint32_t>(id->second);
+            MutableColumnPtr data;
+            RETURN_IF_ERROR(convert_lance_blob_descriptors_to_file_column(
+                    batch->GetColumnByName(column.name), ids, column, source_id, &data));
+            blob_columns->emplace(column.name, std::move(data));
+        }
+    } else {
+        for (const auto& column : projected_columns) {
+            if (remove_nullable(column.type)->get_primitive_type() == TYPE_FILE) {
+                auto data = column.type->create_column();
+                blob_columns->emplace(column.name, std::move(data));
+            }
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris::format::lance

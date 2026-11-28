@@ -505,4 +505,44 @@ TEST_F(ColumnFileTest, RejectComparisonAndSortingEvenWhenEmpty) {
     }
 }
 
+TEST_F(ColumnFileTest, BlobReferencesFollowCopiesFiltersAndArenaSerialization) {
+    auto source = ColumnFile::create();
+    for (uint64_t row_id : {91, 3, 91}) {
+        auto value = file(nullptr);
+        value.get<TYPE_FILE>().blob_source_id = 7;
+        value.get<TYPE_FILE>().blob_row_id = row_id;
+        source->insert(value);
+    }
+    ColumnPtr shared = source->get_ptr();
+    auto detached = IColumn::mutate(shared);
+    auto& copy = assert_cast<ColumnFile&>(*detached);
+    copy.pop_back(1);
+    copy.insert_default();
+    EXPECT_EQ(source->blob_source_id_at(2), 7);
+    EXPECT_EQ(copy.blob_source_id_at(2), 0);
+    IColumn::Filter filter = {0, 1, 1};
+    auto selected = source->filter(filter, -1);
+    const auto& files = assert_cast<const ColumnFile&>(*selected);
+    ASSERT_EQ(files.size(), 2);
+    EXPECT_EQ(files.blob_row_id_at(0), 3);
+    EXPECT_EQ(files.blob_row_id_at(1), 91);
+    auto restored = ColumnFile::create();
+    Arena arena;
+    const char* begin = nullptr;
+    const auto serialized = files.serialize_value_into_arena(1, arena, begin);
+    EXPECT_EQ(restored->deserialize_and_insert_from_arena(serialized.data),
+              serialized.data + serialized.size);
+    EXPECT_EQ(restored->blob_source_id_at(0), 7);
+    EXPECT_EQ(restored->blob_row_id_at(0), 91);
+    auto other = file(nullptr);
+    other.get<TYPE_FILE>().blob_source_id = 8;
+    other.get<TYPE_FILE>().blob_row_id = 42;
+    auto right = ColumnFile::create();
+    right->insert(other);
+    restored->insert_range_from(*right, 0, 1);
+    EXPECT_EQ(restored->blob_source_id_at(1), 8);
+    EXPECT_EQ(restored->blob_row_id_at(1), 42);
+    EXPECT_EQ(restored->blob_source_id_at(0), 7);
+}
+
 } // namespace doris

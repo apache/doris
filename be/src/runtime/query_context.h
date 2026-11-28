@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -92,6 +93,7 @@ const std::string toString(QuerySource query_source);
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
 class DescriptorTbl;
+class LanceBlobReader;
 class QueryContext : public std::enable_shared_from_this<QueryContext> {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
@@ -112,6 +114,11 @@ public:
     void init_query_task_controller();
 
     ExecEnv* exec_env() const { return _exec_env; }
+    // Install FE resources before starting any fragment; definitions stay fixed for this query.
+    Status init_lance_blob_resources(std::map<int32_t, TLanceBlobResource> resources);
+    // Returns nullptr when FE did not supply Lance BLOB resources.
+    LanceBlobReader* get_lance_blob_reader();
+    const TLanceBlobResource* get_lance_blob_resource(uint32_t source_id) const;
 
     bool is_timeout(timespec now) const {
         if (_timeout_second <= 0) {
@@ -412,6 +419,8 @@ private:
     std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
     mutable std::mutex _ai_statistics_mutex;
     std::unordered_map<int, std::shared_ptr<AIExecutionStatistics>> _ai_statistics;
+    std::map<int32_t, TLanceBlobResource> _lance_blob_resources;
+    std::unique_ptr<LanceBlobReader> _lance_blob_reader;
 
     void _report_query_profile();
 
