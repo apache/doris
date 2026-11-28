@@ -58,6 +58,7 @@ import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -136,6 +137,32 @@ class FoldConstantRuleOnBETest extends ExpressionRewriteTestHelper {
         for (int row = 0; row < expected.size(); row++) {
             Assertions.assertEquals(new StructLiteral(ImmutableList.of(expected.get(row)), type), decoded.get(row));
         }
+    }
+
+    @Test
+    void testPreparedBinaryStringCastUsesOriginalBytes() {
+        for (String text : new String[] {"ASCII", "中文"}) {
+            Expression cast = new Cast(new VarBinaryLiteral(text.getBytes(StandardCharsets.UTF_8)),
+                    StringType.INSTANCE);
+            Assertions.assertEquals(new StringLiteral(text),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(cast, context));
+        }
+        for (byte[] bytes : new byte[][] {{(byte) 0xff}, {'a', 0, 'b'},
+                "🙂".getBytes(StandardCharsets.UTF_8)}) {
+            Expression cast = new Cast(new VarBinaryLiteral(bytes), StringType.INSTANCE);
+            Assertions.assertEquals(cast, FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(cast, context));
+        }
+    }
+
+    @Test
+    void testPreparedBinaryStringCastAndParentsSkipBeFolding() {
+        Expression cast = new Cast(new VarBinaryLiteral(new byte[] {(byte) 0xff}), StringType.INSTANCE);
+        Assertions.assertTrue(collectConstants(cast).isEmpty());
+        Expression filter = new EqualTo(cast, new StringLiteral("�"));
+        Assertions.assertTrue(collectConstants(filter).isEmpty());
+        Expression supported = new EqualTo(new Add(new IntegerLiteral(1), new IntegerLiteral(2)),
+                new IntegerLiteral(3));
+        Assertions.assertEquals(ImmutableList.of(supported), collectConstants(new And(filter, supported)));
     }
 
     private List<Expression> collectConstants(Expression expression) {

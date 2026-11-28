@@ -18,14 +18,20 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Queriable;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -41,8 +47,13 @@ import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -50,6 +61,7 @@ import java.util.stream.Collectors;
  * Prepared Statement
  */
 public class ExecuteCommand extends Command {
+    private static final Logger LOG = LogManager.getLogger(ExecuteCommand.class);
     private final String stmtName;
     private final PrepareCommand prepareCommand;
     private final StatementContext statementContext;
@@ -138,8 +150,12 @@ public class ExecuteCommand extends Command {
         // following execution/result-sending uses it instead of the previous execution's context.
         executor.setStatementContext(statementContext);
         executor.setParsedStmt(planAdapter);
+        // These fast paths serialize literals without expression evaluation. Non-UTF-8 string
+        // parameters contain a binary-to-string Cast that must be evaluated by the normal plan.
+        boolean hasLiteralBindings = statementContext.getIdToPlaceholderRealExpr().values().stream()
+                .allMatch(Literal.class::isInstance);
         boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
-        boolean shortCircuitContextReusable = hasShortCircuitContext
+        boolean shortCircuitContextReusable = hasLiteralBindings && hasShortCircuitContext
                 && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx);
         // Reuse the cached short-circuit plan only when table metadata is unchanged and the statement
         // has no nondeterministic functions. Otherwise fall back to the normal execution path below.
@@ -155,7 +171,7 @@ public class ExecuteCommand extends Command {
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
-        if (ctx.getSessionVariable().enableGroupCommitFullPrepare) {
+        if (hasLiteralBindings && ctx.getSessionVariable().enableGroupCommitFullPrepare) {
             if (preparedStmtCtx.groupCommitPlanner.isPresent()) {
                 OlapGroupCommitInsertExecutor.fastAnalyzeGroupCommit(ctx, prepareCommand);
             } else {
@@ -167,8 +183,16 @@ public class ExecuteCommand extends Command {
             }
         }
         // execute real statement
+        if (statementContext.isShortCircuitQuery() && hasShortCircuitContext && !shortCircuitContextReusable) {
+            statementContext = refreshPreparedPlan(preparedStmtCtx, executor, prepareCommand, statementContext);
+        } else {
+            // A failed execution can leave the flag set without publishing a cached context.
+            statementContext.setShortCircuitQuery(false);
+            statementContext.setShortCircuitQueryContext(null);
+        }
+        // Drop the previously cached short-circuit context: either it was reusable and returned
+        // early above, has just been refreshed here, or is stale and we are about to re-plan.
         preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
-        statementContext.setShortCircuitQueryContext(null);
         executor.execute();
         if (executor.getContext().getStatementContext().isShortCircuitQuery()) {
             // cache short-circuit plan
@@ -176,6 +200,97 @@ public class ExecuteCommand extends Command {
                     new ShortCircuitQueryContext(executor.planner(), (Queriable) executor.getParsedStmt()));
             statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
         }
+    }
+
+    private StatementContext refreshPreparedPlan(PreparedStatementContext preparedStmtCtx, StmtExecutor executor,
+            PrepareCommand currentCommand, StatementContext currentStatementContext) {
+        Map<PlaceholderId, Expression> boundPlaceholderValues = new HashMap<>(
+                currentStatementContext.getIdToPlaceholderRealExpr());
+        StatementContext originalStatementContext = executor.getContext().getStatementContext();
+        StatementBase originalParsedStmt = executor.getParsedStmt();
+        PrepareCommand originalCommand = preparedStmtCtx.command;
+        StatementContext originalPreparedStatementContext = preparedStmtCtx.getStatementContext();
+        boolean refreshed = false;
+        try {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("refresh prepared statement plan for short-circuit query, stmtName={}",
+                        currentCommand.getName());
+            }
+            List<StatementBase> reparsedStatements = new NereidsParser().parseSQL(
+                    currentCommand.getOriginalStmt().originStmt, executor.getContext().getSessionVariable());
+            if (reparsedStatements.size() <= currentCommand.getOriginalStmt().idx) {
+                throw new AnalysisException("Nereids parse failed. Parser get " + reparsedStatements.size()
+                        + " statements, but we need at least " + (currentCommand.getOriginalStmt().idx + 1)
+                        + " statements.");
+            }
+            StatementBase reparsedStmt = reparsedStatements.get(currentCommand.getOriginalStmt().idx);
+            if (!(reparsedStmt instanceof LogicalPlanAdapter)) {
+                throw new AnalysisException("Prepared statement must be parsed as LogicalPlanAdapter, but get "
+                        + reparsedStmt.getClass().getName());
+            }
+
+            LogicalPlanAdapter reparsedAdapter = (LogicalPlanAdapter) reparsedStmt;
+            StatementContext reparsedStatementContext = reparsedAdapter.getStatementContext();
+            List<Placeholder> reparsedPlaceholders = reparsedStatementContext.getPlaceholders();
+            List<Placeholder> currentPlaceholders = currentCommand.getPlaceholders();
+            if (reparsedPlaceholders.size() != currentPlaceholders.size()) {
+                throw new AnalysisException("Prepared statement placeholder count changed after reparse, old: "
+                        + currentPlaceholders.size() + ", new: " + reparsedPlaceholders.size());
+            }
+
+            reparsedStatementContext.setConnectContext(executor.getContext());
+            reparsedStatementContext.setOriginStatement(currentCommand.getOriginalStmt());
+            reparsedStatementContext.getIdToPlaceholderRealExpr().clear();
+
+            List<Placeholder> refreshedPlaceholders = new ArrayList<>(reparsedPlaceholders.size());
+            for (int i = 0; i < reparsedPlaceholders.size(); i++) {
+                Placeholder oldPlaceholder = currentPlaceholders.get(i);
+                Placeholder refreshedPlaceholder = withMysqlType(reparsedPlaceholders.get(i), oldPlaceholder);
+                refreshedPlaceholders.add(refreshedPlaceholder);
+
+                Expression boundValue = boundPlaceholderValues.get(oldPlaceholder.getPlaceholderId());
+                if (boundValue != null) {
+                    reparsedStatementContext.getIdToPlaceholderRealExpr().put(
+                            refreshedPlaceholder.getPlaceholderId(), boundValue);
+                }
+            }
+            reparsedStatementContext.setPlaceholders(refreshedPlaceholders);
+
+            executor.setStatementContext(reparsedStatementContext);
+            executor.setParsedStmt(reparsedAdapter);
+            PrepareCommand refreshedCommand = new PrepareCommand(currentCommand.getName(),
+                    reparsedAdapter.getLogicalPlan(), refreshedPlaceholders, currentCommand.getOriginalStmt());
+            preparedStmtCtx.command = refreshedCommand;
+            preparedStmtCtx.setStatementContext(reparsedStatementContext);
+            refreshed = true;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("refreshed prepared statement plan for short-circuit query, stmtName={}",
+                        currentCommand.getName());
+            }
+            return reparsedStatementContext;
+        } finally {
+            if (!refreshed) {
+                executor.setStatementContext(originalStatementContext);
+                executor.setParsedStmt(originalParsedStmt);
+                preparedStmtCtx.command = originalCommand;
+                preparedStmtCtx.setStatementContext(originalPreparedStatementContext);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("rollback prepared statement plan refresh for short-circuit query, stmtName={}",
+                            currentCommand.getName());
+                }
+            }
+        }
+    }
+
+    private Placeholder withMysqlType(Placeholder refreshedPlaceholder, Placeholder oldPlaceholder) {
+        if (!oldPlaceholder.hasMysqlColType()) {
+            return refreshedPlaceholder;
+        }
+        int mysqlTypeCode = oldPlaceholder.getMysqlColType().getCode();
+        if (oldPlaceholder.isUnsigned()) {
+            mysqlTypeCode |= MysqlColType.UNSIGNED_MASK;
+        }
+        return refreshedPlaceholder.withNewMysqlColType(mysqlTypeCode);
     }
 
     /**
