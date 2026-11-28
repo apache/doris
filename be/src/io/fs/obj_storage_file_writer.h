@@ -19,8 +19,10 @@
 
 #include <bthread/countdown_event.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -37,6 +39,16 @@ namespace doris {
 namespace io {
 struct AsyncCloseStatusPack;
 class ObjStorageClientHolder;
+
+// Read-only upload progress may be observed without retaining or accessing a closing writer.
+class ObjStorageUploadProgress {
+public:
+    int64_t pending_upload_bytes() const { return _pending_bytes.load(std::memory_order_relaxed); }
+
+private:
+    friend class ObjStorageFileWriter;
+    std::atomic<int64_t> _pending_bytes {0};
+};
 
 class ObjStorageFileWriter final : public FileWriter {
 public:
@@ -59,6 +71,16 @@ public:
     Status close(bool non_block = false) override;
     Status try_finish_close() override;
 
+    // Allocation capacity of submitted upload buffers (queued or running), excluding the
+    // not-yet-submitted partial buffer. This is a snapshot, not an admission reservation.
+    int64_t pending_upload_bytes() const { return _upload_progress->pending_upload_bytes(); }
+
+    // Observers can aggregate progress safely even during synchronous writer destruction.
+    // The view contains no writer, filesystem or callback ownership.
+    std::weak_ptr<const ObjStorageUploadProgress> upload_progress() const {
+        return _upload_progress;
+    }
+
 private:
     Status _close_impl();
     [[nodiscard]] std::string _dump_completed_part() const;
@@ -68,7 +90,7 @@ private:
     Status _set_upload_to_remote_less_than_buffer_size();
     void _put_object(UploadFileBuffer& buf);
     void _upload_one_part(int part_num, UploadFileBuffer& buf);
-    bool _complete_part_task_callback(Status s);
+    bool _complete_part_task_callback(Status s, int64_t upload_bytes);
     Status _build_upload_buffer();
     Status _submit_upload_buffer(const std::shared_ptr<FileBuffer>& buf);
     void _record_close_latency();
@@ -84,6 +106,8 @@ private:
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
+    const std::shared_ptr<ObjStorageUploadProgress> _upload_progress =
+            std::make_shared<ObjStorageUploadProgress>();
     std::atomic_bool _failed = false;
 
     Status _st;

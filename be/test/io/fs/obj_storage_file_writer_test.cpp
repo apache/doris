@@ -278,6 +278,10 @@ static auto test_mock_callbacks = std::array {
 class S3FileWriterTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
+        // These mock I/O tests do not initialize FileCacheFactory. Do not depend on an
+        // unrelated earlier suite disabling the process-wide cache configuration.
+        _saved_enable_file_cache = config::enable_file_cache;
+        config::enable_file_cache = false;
         auto sp = SyncPoint::get_instance();
         sp->enable_processing();
         config::file_cache_enter_disk_resource_limit_mode_percent = 99;
@@ -318,7 +322,11 @@ public:
         // Release the suite's S3 client before exit-time destruction of AWS logging globals.
         // The upload pool has stopped, so no upload can still use this filesystem.
         obj_fs.reset();
+        config::enable_file_cache = _saved_enable_file_cache;
     }
+
+private:
+    static inline bool _saved_enable_file_cache = false;
 };
 
 TEST_F(S3FileWriterTest, DisableFileCacheWriteFromS3FileWriter) {
