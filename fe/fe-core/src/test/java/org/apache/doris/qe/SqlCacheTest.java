@@ -20,8 +20,10 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.proto.Types.PUniqueId;
+import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -60,6 +62,27 @@ public class SqlCacheTest extends TestWithFeService {
         );
         PUniqueId key3 = cacheContext3.doComputeCacheKeyMd5(ImmutableSet.of(), sessionVariable);
         Assertions.assertNotEquals(key1, key3);
+    }
+
+    @Test
+    public void testLimitVariablesDoNotDisableSqlCache() {
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnableSqlCache(true);
+        Deencapsulation.setField(sessionVariable, "sqlSelectLimit", 10L);
+        Deencapsulation.setField(sessionVariable, "defaultOrderByLimit", 20L);
+
+        Assertions.assertTrue(CacheAnalyzer.canUseSqlCache(sessionVariable));
+        String variables = SqlCacheContext.computeAffectQueryResultVariables(sessionVariable);
+
+        Deencapsulation.setField(sessionVariable, "sqlSelectLimit", 11L);
+        String variablesWithDifferentSelectLimit =
+                SqlCacheContext.computeAffectQueryResultVariables(sessionVariable);
+        Assertions.assertNotEquals(variables, variablesWithDifferentSelectLimit);
+
+        Deencapsulation.setField(sessionVariable, "defaultOrderByLimit", 21L);
+        String variablesWithDifferentOrderByLimit =
+                SqlCacheContext.computeAffectQueryResultVariables(sessionVariable);
+        Assertions.assertNotEquals(variablesWithDifferentSelectLimit, variablesWithDifferentOrderByLimit);
     }
 
     @Test
