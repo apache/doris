@@ -435,7 +435,8 @@ function link_config_files()
         for file in `ls $CONFIGMAP_MOUNT_PATH`;
         do
             if [[ "$file" == "fe.conf" ]]; then
-                cp $CONFIGMAP_MOUNT_PATH/$file $DORIS_HOME/conf/$file
+                cp "$CONFIGMAP_MOUNT_PATH/$file" "$DORIS_HOME/conf/$file"
+                chmod u+w "$DORIS_HOME/conf/$file"
                 add_cluster_info_to_conf
                 continue
             fi

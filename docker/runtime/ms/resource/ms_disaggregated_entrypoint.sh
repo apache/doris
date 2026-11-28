@@ -16,32 +16,40 @@
 # specific language governing permissions and limitations
 # under the License.
 
-#
+set -eo pipefail
 
-#get from env
-FDB_ENDPOINT=${FDB_ENDPOINT}
-CONFIGMAP_PATH=${CONFIGMAP_PATH:="/etc/doris"}
-DORIS_HOME=${DORIS_HOME:="/opt/apache-doris"}
+CONFIGMAP_PATH=${CONFIGMAP_PATH:-/etc/doris}
+DORIS_HOME=${DORIS_HOME:-/opt/apache-doris}
 
-echo "" >> $DORIS_HOME/ms/conf/doris_cloud.conf
-echo "fdb_cluster=$FDB_ENDPOINT" >> $DORIS_HOME/ms/conf/doris_cloud.conf
-if [[ -d $CONFIGMAP_PATH ]]; then
-    for file in `ls $CONFIGMAP_PATH`
-        do
-            if [[ "$file" == "doris_cloud.conf" ]] ; then
-                mv -f $DORIS_HOME/ms/conf/$file $DORIS_HOME/ms/conf/$file.bak
-                cp $CONFIGMAP_PATH/$file $DORIS_HOME/ms/conf/$file
-                echo "fdb_cluster=$FDB_ENDPOINT" >> $DORIS_HOME/ms/conf/doris_cloud.conf
-                continue
+update_conf_from_configmap()
+{
+    local source target file
+    if [[ -d "${CONFIGMAP_PATH}" ]]; then
+        for source in "${CONFIGMAP_PATH}"/*; do
+            [[ -f "${source}" ]] || continue
+            file=$(basename "${source}")
+            target="${DORIS_HOME}/ms/conf/${file}"
+            if [[ -e "${target}" || -L "${target}" ]]; then
+                mv -f "${target}" "${target}.bak"
             fi
-
-            if test -e $DORIS_HOME/ms/conf/$file ; then
-                mv -f $DORIS_HOME/ms/conf/$file $DORIS_HOME/ms/conf/$file.bak
+            if [[ "${file}" == doris_cloud.conf ]]; then
+                # Projected ConfigMaps are read-only; startup needs a writable copy.
+                cp "${source}" "${target}"
+                chmod u+w "${target}"
+            else
+                ln -sfT "${source}" "${target}"
             fi
-            ln -sfT $CONFIGMAP_PATH/$file $DORIS_HOME/ms/conf/$file
-       done
-fi
+        done
+    fi
 
-./doris-debug --component ms
+    if [[ -n "${FDB_ENDPOINT:-}" ]]; then
+        target="${DORIS_HOME}/ms/conf/doris_cloud.conf"
+        # Do not accumulate endpoint assignments when the entrypoint is rerun.
+        sed -i '/^[[:space:]]*fdb_cluster[[:space:]]*=/d' "${target}"
+        printf '\nfdb_cluster=%s\n' "${FDB_ENDPOINT}" >> "${target}"
+    fi
+}
 
-$DORIS_HOME/ms/bin/start.sh --console --conf=$DORIS_HOME/ms/conf/doris_cloud.conf
+update_conf_from_configmap
+"${DORIS_HOME}/doris-debug" --component ms
+exec "${DORIS_HOME}/ms/bin/start.sh" --console "--conf=${DORIS_HOME}/ms/conf/doris_cloud.conf" "$@"
