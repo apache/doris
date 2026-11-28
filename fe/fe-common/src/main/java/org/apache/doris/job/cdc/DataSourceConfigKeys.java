@@ -39,6 +39,7 @@ public class DataSourceConfigKeys {
     public static final String SNAPSHOT_SPLIT_KEY = "snapshot_split_key";
     public static final String SNAPSHOT_PARALLELISM = "snapshot_parallelism";
     public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
+    public static final String COMPACT_SNAPSHOT_OFFSET = "_compact";
     public static final String SKIP_SNAPSHOT_BACKFILL = "skip_snapshot_backfill";
     public static final String SCHEMA_CHANGE_ENABLED = "schema_change_enabled";
     public static final String SCHEMA_CHANGE_BEHAVIOR = "schema_change_behavior";

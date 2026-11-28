@@ -25,8 +25,10 @@ import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
@@ -34,10 +36,12 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.manager.StreamingTaskManager;
 import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
 import org.apache.doris.job.offset.s3.S3Offset;
 import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
+import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -53,6 +57,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -495,6 +504,66 @@ public class StreamingInsertJobOffsetPersistenceTest {
         job.replayOnUpdated(replayJob);
 
         Assertions.assertEquals(1234L, job.getStartTimeMs());
+    }
+
+    @Test
+    public void testTvfJobImageRestoresFirstBinlogAfterSnapshotCommit() throws Exception {
+        Map<String, String> source = new HashMap<>();
+        source.put(DataSourceConfigKeys.TYPE, "postgres");
+        source.put(DataSourceConfigKeys.JDBC_URL, "jdbc:postgresql://127.0.0.1:5432/source_db");
+        source.put(DataSourceConfigKeys.SCHEMA, "public");
+        source.put(DataSourceConfigKeys.TABLE, "orders");
+        source.put(DataSourceConfigKeys.OFFSET, DataSourceConfigKeys.OFFSET_INITIAL);
+        for (boolean compact : new boolean[] {false, true}) {
+            StreamingInsertJob job = new StreamingInsertJob();
+            job.setJobId(9001L);
+            job.setJobStatus(JobStatus.RUNNING);
+            Deencapsulation.setField(job, "tvfType", CdcStreamTableValuedFunction.NAME);
+            Deencapsulation.setField(job, "syncTables", Collections.singletonList("orders"));
+            job.offsetProvider = new JdbcTvfSourceOffsetProvider();
+            job.offsetProvider.ensureInitialized(job.getJobId(), source);
+
+            String progress = compact ? "[{\"splitId\":\"public.orders:1\",\"lsn\":\"100\",\"_compact\":\"1\"}]"
+                    : "[{\"splitId\":\"public.orders:0\",\"lsn\":\"100\"},"
+                            + "{\"splitId\":\"public.orders:1\",\"lsn\":\"200\"}]";
+            TransactionState txn = Mockito.mock(TransactionState.class);
+            Mockito.when(txn.getTxnCommitAttachment()).thenReturn(new StreamingTaskTxnCommitAttachment(
+                    job.getJobId(), 1017L, 2L, 0L, 0L, 0L, 0L, progress));
+            job.replayOnCommitted(txn);
+
+            ByteArrayOutputStream image = new ByteArrayOutputStream();
+            job.write(new DataOutputStream(image));
+            StreamingInsertJob restored = (StreamingInsertJob) AbstractJob.readFields(
+                    new DataInputStream(new ByteArrayInputStream(image.toByteArray())));
+            Assertions.assertEquals(job.getOffsetProviderPersist(), restored.getOffsetProviderPersist());
+            JdbcTvfSourceOffsetProvider provider = (JdbcTvfSourceOffsetProvider) restored.offsetProvider;
+            Assertions.assertNull(provider.getCurrentOffset());
+            Deencapsulation.setField(restored, "originTvfProps", source);
+
+            SnapshotSplit first = new SnapshotSplit("public.orders:0", "public.orders",
+                    Collections.singletonList("id"), null, new Object[] {10}, null);
+            SnapshotSplit last = new SnapshotSplit("public.orders:1", "public.orders",
+                    Collections.singletonList("id"), new Object[] {10}, null, null);
+            try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
+                utils.when(() -> StreamingJobUtils.restoreSplitsToJob(job.getJobId()))
+                        .thenReturn(Collections.singletonMap("orders", Arrays.asList(first, last)));
+                restored.replayOffsetProviderIfNeed();
+            }
+
+            JdbcOffset next = (JdbcOffset) provider.getNextOffset(null, source);
+            Assertions.assertFalse(next.snapshotSplit());
+            BinlogSplit binlog = (BinlogSplit) next.getSplits().get(0);
+            List<SnapshotSplit> finished = binlog.getFinishedSplits();
+            Assertions.assertNotNull(finished);
+            Assertions.assertEquals(2, finished.size());
+            Assertions.assertEquals("public.orders:0", finished.get(0).getSplitId());
+            Assertions.assertArrayEquals(new Object[] {10}, finished.get(0).getSplitEnd());
+            Assertions.assertEquals(Collections.singletonMap("lsn", "100"), finished.get(0).getHighWatermark());
+            Assertions.assertEquals("public.orders:1", finished.get(1).getSplitId());
+            Assertions.assertArrayEquals(new Object[] {10}, finished.get(1).getSplitStart());
+            Assertions.assertEquals(Collections.singletonMap("lsn", compact ? "100" : "200"),
+                    finished.get(1).getHighWatermark());
+        }
     }
 
     @Test
