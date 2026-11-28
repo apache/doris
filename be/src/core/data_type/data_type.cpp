@@ -60,12 +60,15 @@ String IDataType::do_get_name() const {
 
 ColumnPtr IDataType::create_column_const(size_t size, const Field& field) const {
     auto column = create_column();
+    // The physical column stores one value regardless of the logical row count.
+    column->reserve(1);
     column->insert(field);
     return ColumnConst::create(std::move(column), size);
 }
 
 ColumnPtr IDataType::create_column_const_with_default_value(size_t size) const {
     auto column = create_column();
+    column->reserve(1);
     column->insert_default();
     return ColumnConst::create(std::move(column), size);
 }
