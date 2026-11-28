@@ -27,11 +27,14 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String lanceRestPort = context.config.otherConfigs.get("lance_rest_port")
-    // The authoritative admission preflight runs against real Lance metadata but the
-    // synchronous execution path has not landed: a mutation that would be admitted ends
-    // in the shared not-supported rejection, and nothing is created or dropped. Index
-    // names still carry this per-run suffix so rerunning the suite on a shared pipeline
-    // cluster can never collide with leftovers from other suites.
+    // The authoritative admission preflight runs against real Lance metadata; with the
+    // mutation gate open an admitted mutation executes synchronously inside the statement.
+    // The backend of this build ships only the stub lance index worker, which answers a
+    // complete not-implemented rejection before executing anything, so every would-be
+    // admitted statement below ends as the typed confirmed failure (5108) and nothing is
+    // created or dropped. Index names still carry this per-run suffix so rerunning the
+    // suite on a shared pipeline cluster can never collide with leftovers from other
+    // suites.
     String runSuffix = "${System.currentTimeMillis()}"
     String filesystemCatalog = "test_lance_index_admission_${runSuffix}"
     String restCatalog = "test_lance_index_admission_rest"
@@ -74,20 +77,23 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         """
 
         // CREATE INDEX passes static validation and the whole authoritative preflight
-        // (snapshot read, case analysis, column resolution, schema contract), then ends
-        // in the shared not-supported rejection: no index is created.
+        // (snapshot read, case analysis, column resolution, schema contract), then executes
+        // synchronously: the single dispatch reaches the backend, whose stub lance index
+        // worker refuses the invocation before executing it, so the statement classifies
+        // as the typed confirmed failure - no index is created.
         test {
             sql """CREATE INDEX `${createIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
                     PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""
-            exception "CREATE INDEX is not supported for Lance catalog tables"
+            exception "Lance index mutation was rejected and nothing was committed"
         }
 
-        // Nothing was created above, so a same-name CREATE runs the same preflight and
-        // ends in the same rejection.
+        // Nothing was committed above (the confirmed-failure class proves it), so a
+        // same-name CREATE admits again and ends in the same confirmed failure. This copy
+        // pins the stub worker's own rejection message carried inside the typed error.
         test {
             sql """CREATE INDEX `${createIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
                     PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""
-            exception "CREATE INDEX is not supported for Lance catalog tables"
+            exception "lance index worker is not available in this build"
         }
 
         // The preloaded index persists num_bits=4 (lance_build_preinstalled_catalog.py
@@ -163,12 +169,23 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         }
 
         // DROP INDEX IF EXISTS of the preloaded index resolves to a name that is present in
-        // the authoritative snapshot, so the preflight passes and the statement ends in the
-        // shared not-supported rejection: nothing is dropped.
+        // the authoritative snapshot, so the preflight passes and the statement executes
+        // synchronously: the backend stub worker refuses the invocation, so nothing is
+        // dropped.
         test {
             sql """DROP INDEX IF EXISTS `${preloadedIndex}` ON `${filesystemCatalog}`.`doris`.`${tableName}`"""
-            exception "DROP INDEX is not supported for Lance catalog tables"
+            exception "Lance index mutation was rejected and nothing was committed"
         }
+
+        // The rejected mutations committed nothing and the read face is unaffected: the
+        // authoritative physical listing still shows exactly the preloaded index with no
+        // leftovers from the rejected CREATEs, and SHOW INDEX still resolves the preloaded
+        // name through the same per-run catalog (column 3 is the index name).
+        def entriesRows = sql """SELECT IndexName FROM lance_index_entries("table" = "${filesystemCatalog}.doris.${tableName}")"""
+        assertTrue(entriesRows.any { row -> row[0].toString().equalsIgnoreCase(preloadedIndex) })
+        assertTrue(!entriesRows.any { row -> row[0].toString().equalsIgnoreCase(createIndexName) })
+        def showRows = sql """SHOW INDEX FROM `${filesystemCatalog}`.`doris`.`${tableName}`"""
+        assertTrue(showRows.any { row -> row[2].toString().equalsIgnoreCase(preloadedIndex) })
     } catch (Throwable failure) {
         suiteFailure = failure
         throw failure

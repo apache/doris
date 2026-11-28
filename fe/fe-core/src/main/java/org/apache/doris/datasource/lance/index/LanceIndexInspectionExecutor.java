@@ -37,6 +37,7 @@ public final class LanceIndexInspectionExecutor {
     private static final int DEFAULT_TIMEOUT_SECONDS = 60;
     private static final int MAX_CONCURRENT_READS = 4;
     private static final int MAX_QUEUED_READS = 16;
+    private static final ThreadLocal<Long> STATEMENT_DEADLINE_MS = new ThreadLocal<>();
     private static final ThreadPoolExecutor EXECUTOR = ThreadPoolManager.newDaemonFixedThreadPool(
             MAX_CONCURRENT_READS,
             MAX_QUEUED_READS,
@@ -53,7 +54,46 @@ public final class LanceIndexInspectionExecutor {
                 ? DEFAULT_TIMEOUT_SECONDS : context.getQueryTimeoutS();
         int timeoutSeconds = queryTimeoutSeconds > 0
                 ? Math.min(queryTimeoutSeconds, DEFAULT_TIMEOUT_SECONDS) : DEFAULT_TIMEOUT_SECONDS;
-        return execute(task, EXECUTOR, timeoutSeconds, TimeUnit.SECONDS);
+        long remainingMs = Math.min(timeoutSeconds * 1000L,
+                statementDeadlineMs() - System.currentTimeMillis());
+        if (remainingMs <= 0) {
+            throw new MetadataReadTimeoutException(
+                    "Lance mutation statement budget was exhausted before metadata read");
+        }
+        return execute(task, EXECUTOR, remainingMs, TimeUnit.MILLISECONDS);
+    }
+
+    /** Carries a mutation's original deadline through both admission and its final preflight. */
+    public static <T> T withDeadline(long deadlineMs, Callable<T> task) throws Exception {
+        Long previous = STATEMENT_DEADLINE_MS.get();
+        long effective = previous == null ? deadlineMs : Math.min(previous, deadlineMs);
+        STATEMENT_DEADLINE_MS.set(effective);
+        try {
+            checkDeadline(effective);
+            T result = task.call();
+            checkDeadline(effective);
+            return result;
+        } catch (Exception e) {
+            checkDeadline(effective);
+            throw e;
+        } finally {
+            if (previous == null) {
+                STATEMENT_DEADLINE_MS.remove();
+            } else {
+                STATEMENT_DEADLINE_MS.set(previous);
+            }
+        }
+    }
+
+    public static long statementDeadlineMs() {
+        Long deadline = STATEMENT_DEADLINE_MS.get();
+        return deadline == null ? Long.MAX_VALUE : deadline;
+    }
+
+    private static void checkDeadline(long deadlineMs) {
+        if (deadlineMs - System.currentTimeMillis() <= 0) {
+            throw new MetadataReadTimeoutException("Lance mutation statement budget was exhausted during admission");
+        }
     }
 
     @VisibleForTesting
@@ -119,8 +159,8 @@ public final class LanceIndexInspectionExecutor {
                 + timeout + " " + timeoutUnit.name().toLowerCase(Locale.ROOT));
     }
 
-    static final class MetadataReadTimeoutException extends RuntimeException {
-        MetadataReadTimeoutException(String message) {
+    public static final class MetadataReadTimeoutException extends RuntimeException {
+        public MetadataReadTimeoutException(String message) {
             super(message);
         }
     }
