@@ -20,7 +20,9 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cmath>
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 #include "common/status.h"
@@ -106,19 +108,33 @@ private:
         const auto* max_value_data = max_value_column_concrete.get_data().data();
         auto* nested_data = nested_column_concrete.get_data().data();
 
+        using ValueType = std::remove_cv_t<std::remove_reference_t<decltype(expr_data[0])>>;
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto min_value = min_value_data[i];
             auto max_value = max_value_data[i];
-            auto average_value = (max_value - min_value) / (1.0 * num_buckets);
-            if (expr_data[i] < min_value) {
+            auto expr_value = expr_data[i];
+            if (expr_value < min_value) {
                 continue;
-            } else if (expr_data[i] >= max_value) {
+            } else if (expr_value >= max_value) {
                 nested_data[i] = num_buckets + 1;
+            } else if constexpr (std::is_integral_v<ValueType>) {
+                const __int128 width =
+                        static_cast<__int128>(max_value) - static_cast<__int128>(min_value);
+                const __int128 distance =
+                        static_cast<__int128>(expr_value) - static_cast<__int128>(min_value);
+                nested_data[i] =
+                        static_cast<int64_t>(1 + distance * static_cast<__int128>(num_buckets) / width);
             } else {
-                if ((max_value - min_value) / num_buckets == 0) {
+                const long double width =
+                        static_cast<long double>(max_value) - static_cast<long double>(min_value);
+                const long double scaled =
+                        (static_cast<long double>(expr_value) - static_cast<long double>(min_value)) *
+                        static_cast<long double>(num_buckets) / width;
+                if (!std::isfinite(scaled)) {
                     continue;
                 }
-                nested_data[i] = (int64_t)(1 + (expr_data[i] - min_value) / average_value);
+                nested_data[i] = static_cast<int64_t>(
+                        1 + std::min(scaled, static_cast<long double>(num_buckets - 1)));
             }
         }
     }
