@@ -17,14 +17,144 @@
 
 #include <gtest/gtest.h>
 
+#include "common/exception.h"
+#include "cpp/sync_point.h"
 #include "exec/common/variant_util.h"
+#include "io/fs/local_file_system.h"
+#include "storage/olap_define.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/segment/segment_loader.h"
+#include "storage/tablet/tablet.h"
 #include "storage/variant/index_storage_variant_test_base.h"
+#include "util/defer_op.h"
 
 namespace doris::index_storage_test {
 
 class IndexStorageVariantCompactionSchemaTest : public IndexStorageTestFixture {
 protected:
+    Status write_desc_rowsets(std::vector<RowsetSharedPtr>& rowsets, int64_t tablet_id = 110055);
 };
+
+Status IndexStorageVariantCompactionSchemaTest::write_desc_rowsets(
+        std::vector<RowsetSharedPtr>& rowsets, int64_t tablet_id) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.max_subcolumns_count = 0;
+    IndexTabletOptions options;
+    options.tablet_id = tablet_id;
+    options.external_segment_meta = true;
+    options.variant_columns = {std::move(variant)};
+    RETURN_IF_ERROR(create_tablet(options));
+
+    const std::vector<std::string> documents {R"({"existing":1})", R"({"extra":2})"};
+    for (size_t i = 0; i < documents.size(); ++i) {
+        IndexRowsetSpec spec;
+        spec.version = i;
+        spec.batches.push_back(IndexBatch::single_variant({documents[i]}, 0));
+        auto rowset = write_rowset(spec);
+        if (!rowset.has_value()) {
+            return std::move(rowset).error();
+        }
+        rowsets.push_back(std::move(rowset).value());
+    }
+    return Status::OK();
+}
+
+TEST_F(IndexStorageVariantCompactionSchemaTest, DescReadsOnlyTheCapturedRowsets) {
+    std::vector<RowsetSharedPtr> rowsets;
+    const auto status = write_desc_rowsets(rowsets);
+    ASSERT_TRUE(status.ok()) << status;
+    auto describe = [&](const std::vector<RowsetSharedPtr>& snapshot) {
+        return variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+                snapshot, tablet_schema());
+    };
+
+    const std::vector<RowsetSharedPtr> original {rowsets.front()};
+    auto first = describe(original);
+    ASSERT_TRUE(first.has_value()) << first.error();
+    EXPECT_TRUE(schema_has_extracted_variant_path(*first.value(), 2, "existing"));
+    EXPECT_FALSE(schema_has_extracted_variant_path(*first.value(), 2, "extra"));
+
+    auto updated = describe(rowsets);
+    ASSERT_TRUE(updated.has_value()) << updated.error();
+    EXPECT_TRUE(schema_has_extracted_variant_path(*updated.value(), 2, "existing"));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*updated.value(), 2, "extra"));
+    auto previous = describe(original);
+    ASSERT_TRUE(previous.has_value()) << previous.error();
+    EXPECT_FALSE(schema_has_extracted_variant_path(*previous.value(), 2, "extra"));
+}
+
+TEST_F(IndexStorageVariantCompactionSchemaTest, DescFailsOnUnreadableExternalMetadata) {
+    std::vector<RowsetSharedPtr> rowsets;
+    const auto status = write_desc_rowsets(rowsets, 110056);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto* sync = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync->set_call_back(
+            "VariantCompactionUtil::calculate_variant_extended_schema.external_meta_status",
+            [&](auto&& args) {
+                if (try_any_cast<Rowset*>(args[1]) == rowsets.back().get()) {
+                    *try_any_cast<Status*>(args[0]) = Status::IOError("DESC metadata read failed");
+                }
+            },
+            &guard);
+    {
+        sync->enable_processing();
+        Defer cleanup {[&] { sync->disable_processing(); }};
+        auto result = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+                rowsets, tablet_schema());
+        ASSERT_FALSE(result.has_value()) << "DESC returned a partial schema";
+        EXPECT_TRUE(result.error().is<ErrorCode::IO_ERROR>()) << result.error();
+    }
+    auto recovered = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            rowsets, tablet_schema());
+    ASSERT_TRUE(recovered.has_value()) << recovered.error();
+    EXPECT_TRUE(schema_has_extracted_variant_path(*recovered.value(), 2, "existing"));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*recovered.value(), 2, "extra"));
+}
+
+TEST_F(IndexStorageVariantCompactionSchemaTest, DescHandlesMetadataAllocationException) {
+    std::vector<RowsetSharedPtr> rowsets;
+    const auto status = write_desc_rowsets(rowsets);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto* sync = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync->set_call_back(
+            "VariantCompactionUtil::calculate_variant_extended_schema.external_meta_status",
+            [&](auto&& args) {
+                if (try_any_cast<Rowset*>(args[1]) == rowsets.back().get()) {
+                    throw Exception(ErrorCode::MEM_ALLOC_FAILED, "DESC metadata allocation");
+                }
+            },
+            &guard);
+    sync->enable_processing();
+    Defer cleanup {[&] { sync->disable_processing(); }};
+
+    auto result = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            rowsets, tablet_schema());
+    ASSERT_FALSE(result.has_value());
+    EXPECT_TRUE(result.error().is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << result.error();
+}
+
+TEST_F(IndexStorageVariantCompactionSchemaTest, DescFailsWhenSegmentCannotBeOpened) {
+    std::vector<RowsetSharedPtr> rowsets;
+    const auto status = write_desc_rowsets(rowsets);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& rowset = rowsets.back();
+    SegmentLoader::instance()->erase_segments(*rowset->rowset_meta());
+    const auto path = local_segment_path(rowset->tablet_path(), rowset->rowset_id().to_string(),
+                                         rowset->segment(0).id());
+    const auto deleted = io::global_local_filesystem()->delete_file(path);
+    ASSERT_TRUE(deleted.ok()) << deleted;
+
+    auto result = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            rowsets, tablet_schema());
+    ASSERT_FALSE(result.has_value()) << "DESC returned a partial schema";
+    EXPECT_NE(result.error().msg().find(rowset->rowset_id().to_string()), std::string::npos);
+}
 
 TEST(IndexStorageVariantCompactionUtilTest, GetSubpathsHonorsZeroLimitAndTieOrdering) {
     variant_util::PathToNoneNullValues stats {
@@ -77,9 +207,10 @@ TEST(IndexStorageVariantCompactionUtilTest, EmptyInputsKeepVariantSchemaWithoutP
     auto base_schema = build_tablet_schema(options);
     ASSERT_NE(base_schema, nullptr);
 
-    EXPECT_EQ(
-            variant_util::VariantCompactionUtil::calculate_variant_extended_schema({}, base_schema),
-            nullptr);
+    auto desc =
+            variant_util::VariantCompactionUtil::calculate_variant_extended_schema({}, base_schema);
+    ASSERT_TRUE(desc.has_value()) << desc.error();
+    EXPECT_TRUE(desc.value()->has_column_unique_id(2));
 
     auto compaction_schema = std::make_shared<TabletSchema>(*base_schema);
     VariantCompactionPathsMap compaction_paths;

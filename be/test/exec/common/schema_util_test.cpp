@@ -1819,7 +1819,6 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     EXPECT_TRUE(relative_path.get_parts()[0].key.empty());
 }
 
-// Test has_different_structure_in_same_path function indirectly through check_variant_has_no_ambiguous_paths
 TEST_F(SchemaUtilTest, has_different_structure_in_same_path_indirect) {
     // Test case 1: Same structure and same length - should not detect ambiguity
     {
@@ -1996,6 +1995,16 @@ TEST_F(SchemaUtilTest, has_different_structure_in_same_path_indirect) {
         auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
+}
+
+TEST_F(SchemaUtilTest, RejectsAmbiguousPathAfterRepeatedDottedAndNestedKeys) {
+    PathsInData paths(1024, PathInDataBuilder().append("a.b", false).build());
+    paths.emplace_back(PathInDataBuilder().append("a", false).append("b", false).build());
+    ASSERT_TRUE(variant_util::check_variant_has_no_ambiguous_paths(paths).ok());
+
+    paths.emplace_back(PathInDataBuilder().append("a", true).append("b", false).build());
+    EXPECT_TRUE(variant_util::check_variant_has_no_ambiguous_paths(paths)
+                        .is<ErrorCode::DATA_QUALITY_ERROR>());
 }
 
 // Test check_path_conflicts_with_existing function indirectly through update_least_common_schema

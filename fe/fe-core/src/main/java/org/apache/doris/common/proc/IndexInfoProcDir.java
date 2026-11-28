@@ -127,22 +127,14 @@ public class IndexInfoProcDir implements ProcDirInterface {
             Set<String> bfColumns = null;
             if (table.isManagedTable()) {
                 OlapTable olapTable = (OlapTable) table;
-                schema = olapTable.getSchemaByIndexId(idxId);
-                if (schema == null) {
+                if (olapTable.getIndexMetaByIndexId(idxId) == null) {
                     throw new AnalysisException("Index " + idxId + " does not exist");
                 }
-                bfColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-                if (olapTable.getCopiedBfColumns() != null) {
-                    bfColumns.addAll(olapTable.getCopiedBfColumns());
+                if (olapTable.hasVariantColumns() && SessionVariable.enableDescribeExtendVariantColumn()) {
+                    return new RemoteIndexSchemaProcDir(olapTable, idxId);
                 }
-                bfColumns.addAll(Index.getBfIndexColumns(olapTable.getIndexes()));
-                if (bfColumns.isEmpty()) {
-                    bfColumns = null;
-                }
-                if (olapTable.hasVariantColumns()
-                                    && SessionVariable.enableDescribeExtendVariantColumn()) {
-                    return new RemoteIndexSchemaProcDir(table, schema, bfColumns);
-                }
+                schema = olapTable.getSchemaByIndexId(idxId);
+                bfColumns = getBloomFilterColumns(olapTable);
             } else {
                 schema = table.getBaseSchemaForDisplay();
             }
@@ -150,5 +142,15 @@ public class IndexInfoProcDir implements ProcDirInterface {
         } finally {
             table.readUnlock();
         }
+    }
+
+    static Set<String> getBloomFilterColumns(OlapTable table) {
+        Set<String> bfColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        Set<String> copiedBfColumns = table.getCopiedBfColumns();
+        if (copiedBfColumns != null) {
+            bfColumns.addAll(copiedBfColumns);
+        }
+        bfColumns.addAll(Index.getBfIndexColumns(table.getIndexes()));
+        return bfColumns.isEmpty() ? null : bfColumns;
     }
 }

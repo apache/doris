@@ -30,6 +30,7 @@ import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -38,6 +39,7 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,6 +50,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
@@ -186,6 +189,7 @@ public class CloudPartition extends Partition {
                 .build();
 
         try {
+            waitForVersionDebugPoint();
             Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request);
             long version = -1;
             long mTime = -1;
@@ -212,6 +216,16 @@ public class CloudPartition extends Partition {
             return version;
         } catch (RpcException e) {
             throw new RuntimeException("get version from meta service failed");
+        }
+    }
+
+    private static void waitForVersionDebugPoint() {
+        String pausePoint = "CloudPartition.getVisibleVersionFromMs.pause";
+        ConnectContext ctx = ConnectContext.get();
+        DebugPointUtil.DebugPoint pause = DebugPointUtil.getDebugPoint(pausePoint);
+        while (pause != null && ctx != null && ctx.getConnectionId() == pause.param("connection_id", -1)) {
+            Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
+            pause = DebugPointUtil.getDebugPoint(pausePoint);
         }
     }
 
@@ -461,6 +475,7 @@ public class CloudPartition extends Partition {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersion use CloudPartition {}", partitionIds.toString());
         }
+        waitForVersionDebugPoint();
         Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(req, maxAttempts);
         if (resp.getStatus().getCode() != MetaServiceCode.OK) {
             throw new RpcException("get visible version", "unexpected status " + resp.getStatus());

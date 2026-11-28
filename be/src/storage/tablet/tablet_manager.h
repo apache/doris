@@ -91,7 +91,7 @@ public:
                     all_cumulative_compaction_policies);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, bool include_deleted = false,
-                               std::string* err = nullptr);
+                               std::string* err = nullptr, bool* missing = nullptr);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
@@ -207,7 +207,7 @@ private:
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,
-                                         std::string* err);
+                                         std::string* err, bool* missing = nullptr);
 
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
