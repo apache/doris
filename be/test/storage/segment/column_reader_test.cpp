@@ -44,6 +44,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -5477,6 +5478,410 @@ TEST_F(ColumnReaderTest, MapAccessAllWithOffsetDoesNotPropagateOffsetToKey) {
     auto* val_ptr = static_cast<StringFileColumnIterator*>(map_iter._val_iterator.get());
     ASSERT_EQ(val_ptr->_read_requirement, ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     ASSERT_TRUE(val_ptr->read_offset_only());
+}
+
+namespace {
+
+void build_multi_page_bool_column_for_rle_test(const std::string& file_name, size_t num_rows,
+                                               EncodingTypePB encoding, bool is_nullable,
+                                               ColumnMetaPB* meta, TabletColumn* tablet_col,
+                                               io::FileReaderSPtr* file_reader,
+                                               std::shared_ptr<ColumnReader>* reader) {
+    auto fs = io::global_local_filesystem();
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(fs->create_file(file_name, &file_writer).ok());
+
+    meta->set_column_id(0);
+    meta->set_unique_id(0);
+    meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_BOOL));
+    meta->set_length(1);
+    meta->set_encoding(encoding);
+    meta->set_compression(segment_v2::CompressionTypePB::NO_COMPRESSION);
+    meta->set_is_nullable(is_nullable);
+
+    ColumnWriterOptions writer_options;
+    writer_options.meta = meta;
+    // data_page_size=12 + 64-row append chunks gives multi-page files (>8 and <192 rows/page) across RLE/Plain/BitShuffle.
+    writer_options.data_page_size = 12;
+    writer_options.need_zone_map = false;
+
+    *tablet_col = TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                               FieldType::OLAP_FIELD_TYPE_BOOL);
+    tablet_col->set_is_nullable(is_nullable);
+
+    std::unique_ptr<ColumnWriter> writer;
+    ASSERT_TRUE(ColumnWriter::create(writer_options, tablet_col, file_writer.get(), &writer).ok());
+    ASSERT_TRUE(writer->init().ok());
+
+    auto data_col = ColumnUInt8::create();
+    auto null_map = ColumnUInt8::create();
+    for (size_t i = 0; i < num_rows; ++i) {
+        uint8_t is_null_val =
+                is_nullable ? static_cast<uint8_t>((i % 13 == 0) || (i >= 70 && i < 82)) : 0;
+        // Ensure distinct values across early offsets in page 0 so stale _cur_index is caught.
+        uint8_t val = is_null_val ? 0 : static_cast<uint8_t>(((i * 7 + 3) % 11) < 5 ? 1 : 0);
+        data_col->insert_value(val);
+        null_map->insert_value(is_null_val);
+    }
+    ColumnPtr write_col =
+            is_nullable
+                    ? ColumnPtr(ColumnNullable::create(std::move(data_col), std::move(null_map)))
+                    : ColumnPtr(std::move(data_col));
+    for (size_t off = 0; off < num_rows; off += 64) {
+        size_t chunk = std::min<size_t>(64, num_rows - off);
+        ASSERT_TRUE(writer->append(*write_col, off, chunk).ok());
+    }
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(writer->write_data().ok());
+    ASSERT_TRUE(writer->write_ordinal_index().ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    ASSERT_TRUE(fs->open_file(file_name, file_reader).ok());
+    ColumnReaderOptions reader_options;
+    ASSERT_TRUE(ColumnReader::create(reader_options, *meta, num_rows, *file_reader, reader).ok());
+}
+
+} // namespace
+
+// Deterministic fast-failing regression test (no infinite loop even on unpatched code):
+// After sparse `read_by_rowids` within the current page, explicit `seek_to_ordinal` back to
+// the batch's starting ordinal followed by `next_batch` must return identical row count and
+// values to a fresh independent iterator across RLE, PLAIN_ENCODING, and BIT_SHUFFLE, while
+// preserving Plain/BitShuffle's direct-index cursor behavior.
+TEST_F(ColumnReaderTest, RleReadByRowidsSamePageReseekAndEncodingContracts) {
+    constexpr size_t kNumRows = 192;
+    const std::string base_dir = "./ut_dir_rle_rowid_reseek_66365";
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->delete_directory(base_dir).ok());
+    ASSERT_TRUE(fs->create_directory(base_dir).ok());
+    Defer cleanup {[&]() { (void)fs->delete_directory(base_dir); }};
+
+    for (EncodingTypePB encoding : {RLE, PLAIN_ENCODING, BIT_SHUFFLE}) {
+        for (bool is_nullable : {false, true}) {
+            ColumnMetaPB meta;
+            TabletColumn tablet_col;
+            io::FileReaderSPtr file_reader;
+            std::shared_ptr<ColumnReader> reader;
+            build_multi_page_bool_column_for_rle_test(
+                    base_dir + "/col_" + std::to_string(static_cast<int>(encoding)) + "_" +
+                            std::to_string(is_nullable),
+                    kNumRows, encoding, is_nullable, &meta, &tablet_col, &file_reader, &reader);
+
+            DataTypePtr col_type = DataTypeFactory::instance().create_data_type(tablet_col);
+            auto new_iter = [&]() {
+                ColumnIteratorUPtr it;
+                DORIS_CHECK(reader->new_iterator(&it, &tablet_col).ok());
+                auto stats = std::make_unique<OlapReaderStatistics>();
+                ColumnIteratorOptions opts;
+                opts.file_reader = file_reader.get();
+                opts.stats = stats.get();
+                DORIS_CHECK(it->init(opts).ok());
+                return std::make_pair(std::move(it), std::move(stats));
+            };
+
+            auto [base_it, base_stats] = new_iter();
+            ASSERT_TRUE(base_it->seek_to_ordinal(0).ok());
+            MutableColumnPtr baseline = col_type->create_column();
+            size_t base_n = kNumRows;
+            bool base_has_null = false;
+            ASSERT_TRUE(base_it->next_batch(&base_n, baseline, &base_has_null).ok());
+            ASSERT_EQ(kNumRows, base_n);
+
+            // Inspect page 0 size so our first sparse read stays strictly inside page 0.
+            auto [probe_it, probe_stats] = new_iter();
+            ASSERT_TRUE(probe_it->seek_to_ordinal(0).ok());
+            const ordinal_t page0_rows =
+                    static_cast<FileColumnIterator*>(probe_it.get())->get_current_page()->num_rows;
+            ASSERT_GT(page0_rows, 8u);
+            ASSERT_LT(page0_rows, kNumRows);
+
+            // Same-page sparse read `{2, page0_rows - 2}` leaves `_page` on page 0.
+            {
+                auto [it, st_holder] = new_iter();
+                const rowid_t r0 = 2;
+                const rowid_t r1 = cast_set<rowid_t>(page0_rows - 2);
+                const std::vector<rowid_t> in_page0 = {r0, r1};
+                MutableColumnPtr sparse_out = col_type->create_column();
+                ASSERT_TRUE(it->read_by_rowids(in_page0.data(), in_page0.size(), sparse_out).ok());
+                ASSERT_EQ(2u, sparse_out->size());
+                EXPECT_EQ(0, sparse_out->compare_at(0, r0, *baseline, 1));
+                EXPECT_EQ(0, sparse_out->compare_at(1, r1, *baseline, 1));
+
+                if (!is_nullable) {
+                    auto* file_it = static_cast<FileColumnIterator*>(it.get());
+                    if (encoding == PLAIN_ENCODING || encoding == BIT_SHUFFLE) {
+                        // Direct-index decoders keep their cursor at the initial seek position `r0`.
+                        EXPECT_EQ(r0, file_it->get_current_page()->data_decoder->current_index());
+                        EXPECT_EQ(r0, file_it->get_current_page()->offset_in_page);
+                    } else {
+                        // RLE advances `_cur_index` to `r1 + 1`; `offset_in_page` must match it.
+                        EXPECT_EQ(r1 + 1,
+                                  file_it->get_current_page()->data_decoder->current_index());
+                        EXPECT_EQ(r1 + 1, file_it->get_current_page()->offset_in_page);
+                    }
+                }
+
+                // Explicit seek back to `r0` (the exact pre-read offset_in_page!) + next_batch.
+                ASSERT_TRUE(it->seek_to_ordinal(r0).ok());
+                MutableColumnPtr seq_actual = col_type->create_column();
+                size_t seq_n = kNumRows - r0;
+                bool seq_has_null = false;
+                ASSERT_TRUE(it->next_batch(&seq_n, seq_actual, &seq_has_null).ok());
+                ASSERT_EQ(kNumRows - r0, seq_n)
+                        << "encoding=" << encoding << " nullable=" << is_nullable;
+                ASSERT_EQ(seq_n, seq_actual->size())
+                        << "encoding=" << encoding << " nullable=" << is_nullable;
+                for (size_t idx = 0; idx < seq_n; ++idx) {
+                    EXPECT_EQ(0, seq_actual->compare_at(idx, r0 + idx, *baseline, 1))
+                            << "encoding=" << encoding << " nullable=" << is_nullable
+                            << " idx=" << idx;
+                }
+            }
+
+            // Cross-page sparse read followed by explicit seek_to_ordinal + next_batch.
+            for (ordinal_t reseek_ord :
+                 {ordinal_t {0}, ordinal_t {5}, page0_rows, ordinal_t {140}}) {
+                auto [it, st_holder] = new_iter();
+                const std::vector<rowid_t> cross_ids = {3, 18, cast_set<rowid_t>(page0_rows + 2),
+                                                        140, 190};
+                MutableColumnPtr actual = col_type->create_column();
+                ASSERT_TRUE(it->read_by_rowids(cross_ids.data(), cross_ids.size(), actual).ok());
+                ASSERT_EQ(cross_ids.size(), actual->size());
+
+                ASSERT_TRUE(it->seek_to_ordinal(reseek_ord).ok());
+                MutableColumnPtr seq_after = col_type->create_column();
+                size_t seq_n = kNumRows - reseek_ord;
+                bool seq_has_null = false;
+                ASSERT_TRUE(it->next_batch(&seq_n, seq_after, &seq_has_null).ok());
+                ASSERT_EQ(kNumRows - reseek_ord, seq_n);
+                for (size_t idx = 0; idx < seq_n; ++idx) {
+                    EXPECT_EQ(0, seq_after->compare_at(idx, reseek_ord + idx, *baseline, 1));
+                }
+            }
+        }
+    }
+}
+
+// Regression test for #66365 infinite-loop scenarios across RLE / PLAIN_ENCODING / BIT_SHUFFLE:
+// - same-iterator repeated read of the page-tail row (where RLE `_cur_index == _num_elements`),
+// - same-iterator backward batch start in the same page,
+// - single-batch duplicate and out-of-order rowids within and across pages (4.1.x path),
+// - out-of-range rowid at segment end returning an error Status instead of spinning.
+TEST_F(ColumnReaderTest, RleReadByRowidsPageTailRepeatAndOutOfOrder) {
+    constexpr size_t kNumRows = 192;
+    const std::string base_dir = "./ut_dir_rle_rowid_tail_66365";
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->delete_directory(base_dir).ok());
+    ASSERT_TRUE(fs->create_directory(base_dir).ok());
+    Defer cleanup {[&]() { (void)fs->delete_directory(base_dir); }};
+
+    for (EncodingTypePB encoding : {RLE, PLAIN_ENCODING, BIT_SHUFFLE}) {
+        for (bool is_nullable : {false, true}) {
+            ColumnMetaPB meta;
+            TabletColumn tablet_col;
+            io::FileReaderSPtr file_reader;
+            std::shared_ptr<ColumnReader> reader;
+            build_multi_page_bool_column_for_rle_test(
+                    base_dir + "/col_" + std::to_string(static_cast<int>(encoding)) + "_" +
+                            std::to_string(is_nullable),
+                    kNumRows, encoding, is_nullable, &meta, &tablet_col, &file_reader, &reader);
+
+            DataTypePtr col_type = DataTypeFactory::instance().create_data_type(tablet_col);
+            ColumnIteratorUPtr base_it;
+            ASSERT_TRUE(reader->new_iterator(&base_it, &tablet_col).ok());
+            OlapReaderStatistics base_stats;
+            ColumnIteratorOptions base_opts;
+            base_opts.file_reader = file_reader.get();
+            base_opts.stats = &base_stats;
+            ASSERT_TRUE(base_it->init(base_opts).ok());
+            ASSERT_TRUE(base_it->seek_to_ordinal(0).ok());
+            MutableColumnPtr baseline = col_type->create_column();
+            size_t base_n = kNumRows;
+            bool base_has_null = false;
+            ASSERT_TRUE(base_it->next_batch(&base_n, baseline, &base_has_null).ok());
+            ASSERT_EQ(kNumRows, base_n);
+
+            ColumnIteratorUPtr it;
+            ASSERT_TRUE(reader->new_iterator(&it, &tablet_col).ok());
+            OlapReaderStatistics stats;
+            ColumnIteratorOptions opts;
+            opts.file_reader = file_reader.get();
+            opts.stats = &stats;
+            ASSERT_TRUE(it->init(opts).ok());
+            ASSERT_TRUE(it->seek_to_ordinal(0).ok());
+            auto* file_it = static_cast<FileColumnIterator*>(it.get());
+            const rowid_t page0_tail =
+                    cast_set<rowid_t>(file_it->get_current_page()->first_ordinal +
+                                      file_it->get_current_page()->num_rows - 1);
+
+            const std::vector<std::vector<rowid_t>> batches = {
+                    {page0_tail},
+                    {page0_tail},
+                    {2, page0_tail},
+                    {2, 5},
+                    {191, 191, page0_tail, page0_tail, 0, 75, 75, 18, 191},
+            };
+            for (size_t b = 0; b < batches.size(); ++b) {
+                MutableColumnPtr out = col_type->create_column();
+                ASSERT_TRUE(it->read_by_rowids(batches[b].data(), batches[b].size(), out).ok())
+                        << "encoding=" << encoding << " nullable=" << is_nullable << " b=" << b;
+                ASSERT_EQ(batches[b].size(), out->size());
+                for (size_t idx = 0; idx < batches[b].size(); ++idx) {
+                    EXPECT_EQ(0, out->compare_at(idx, batches[b][idx], *baseline, 1))
+                            << "encoding=" << encoding << " nullable=" << is_nullable << " b=" << b
+                            << " idx=" << idx;
+                }
+            }
+
+            for (rowid_t oob :
+                 {static_cast<rowid_t>(kNumRows), static_cast<rowid_t>(kNumRows + 1)}) {
+                MutableColumnPtr err_out = col_type->create_column();
+                Status bad_st = it->read_by_rowids(&oob, 1, err_out);
+                EXPECT_TRUE(bad_st.is<ErrorCode::CORRUPTION>())
+                        << "encoding=" << encoding << " nullable=" << is_nullable << " oob=" << oob
+                        << " st=" << bad_st.to_string();
+            }
+            {
+                MutableColumnPtr mixed_err = col_type->create_column();
+                const rowid_t mixed_bad[] = {10, static_cast<rowid_t>(kNumRows + 1)};
+                Status mixed_st = it->read_by_rowids(mixed_bad, 2, mixed_err);
+                EXPECT_TRUE(mixed_st.is<ErrorCode::CORRUPTION>())
+                        << "encoding=" << encoding << " nullable=" << is_nullable
+                        << " st=" << mixed_st.to_string();
+            }
+            Status seek_oob = it->seek_to_ordinal(kNumRows + 1);
+            EXPECT_TRUE(seek_oob.is<ErrorCode::CORRUPTION>())
+                    << "encoding=" << encoding << " nullable=" << is_nullable
+                    << " st=" << seek_oob.to_string();
+
+            if (is_nullable) {
+                NullMapOnlyFileColumnIterator nm_it(reader);
+                ASSERT_TRUE(nm_it.init(opts).ok());
+                nm_it.force_null_map_only();
+                for (rowid_t oob :
+                     {static_cast<rowid_t>(kNumRows), static_cast<rowid_t>(kNumRows + 1)}) {
+                    MutableColumnPtr nm_err = col_type->create_column();
+                    Status nm_st = nm_it.read_by_rowids(&oob, 1, nm_err);
+                    EXPECT_TRUE(nm_st.is<ErrorCode::CORRUPTION>())
+                            << "encoding=" << encoding << " oob=" << oob
+                            << " st=" << nm_st.to_string();
+                }
+            }
+        }
+    }
+}
+
+// Regression test for truncated null bitmaps across all FileColumnIterator read paths
+// starting at page offset 0 (directly exercising GetNextRun() == 0 as well as Skip()):
+// normal read_by_rowids, normal next_batch, NULL_MAP_ONLY next_batch, NULL_MAP_ONLY
+// read_by_rowids, and _seek_to_pos_in_page via seek_to_ordinal(2).
+TEST_F(ColumnReaderTest, TruncatedNullBitmapReturnsCorruptionWithoutSpinning) {
+    constexpr size_t kNumRows = 192;
+    const std::string base_dir = "./ut_dir_rle_trunc_nullmap_66365";
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->delete_directory(base_dir).ok());
+    ASSERT_TRUE(fs->create_directory(base_dir).ok());
+    Defer cleanup {[&]() { (void)fs->delete_directory(base_dir); }};
+
+    ColumnMetaPB meta;
+    TabletColumn tablet_col;
+    io::FileReaderSPtr file_reader;
+    std::shared_ptr<ColumnReader> reader;
+    build_multi_page_bool_column_for_rle_test(base_dir + "/col_rle_nullable", kNumRows, RLE, true,
+                                              &meta, &tablet_col, &file_reader, &reader);
+    DataTypePtr col_type = DataTypeFactory::instance().create_data_type(tablet_col);
+
+    const uint8_t empty_byte = 0;
+    const uint8_t trunc_lit_header[1] = {static_cast<uint8_t>((2u << 1) | 1u)};
+    const std::vector<Slice> bad_bitmaps = {
+            Slice(&empty_byte, 0),
+            Slice(trunc_lit_header, sizeof(trunc_lit_header)),
+    };
+
+    for (size_t bm_idx = 0; bm_idx < bad_bitmaps.size(); ++bm_idx) {
+        const Slice& bad_bm = bad_bitmaps[bm_idx];
+
+        auto prepare_normal = [&]() {
+            ColumnIteratorUPtr it;
+            DORIS_CHECK(reader->new_iterator(&it, &tablet_col).ok());
+            auto stats = std::make_unique<OlapReaderStatistics>();
+            ColumnIteratorOptions opts;
+            opts.file_reader = file_reader.get();
+            opts.stats = stats.get();
+            DORIS_CHECK(it->init(opts).ok());
+            DORIS_CHECK(it->seek_to_ordinal(0).ok());
+            auto* page = static_cast<FileColumnIterator*>(it.get())->get_current_page();
+            DORIS_CHECK(page->has_null);
+            DORIS_CHECK_EQ(0u, page->offset_in_page);
+            page->null_bitmap = bad_bm;
+            page->null_decoder = RleDecoder<bool>(reinterpret_cast<const uint8_t*>(bad_bm.data),
+                                                  cast_set<int>(bad_bm.size), 1);
+            return std::make_pair(std::move(it), std::move(stats));
+        };
+
+        auto prepare_null_map_only = [&]() {
+            auto it = std::make_unique<NullMapOnlyFileColumnIterator>(reader);
+            auto stats = std::make_unique<OlapReaderStatistics>();
+            ColumnIteratorOptions opts;
+            opts.file_reader = file_reader.get();
+            opts.stats = stats.get();
+            DORIS_CHECK(it->init(opts).ok());
+            it->force_null_map_only();
+            DORIS_CHECK(it->seek_to_ordinal(0).ok());
+            auto* page = it->get_current_page();
+            DORIS_CHECK(page->has_null);
+            DORIS_CHECK_EQ(0u, page->offset_in_page);
+            page->null_bitmap = bad_bm;
+            page->null_decoder = RleDecoder<bool>(reinterpret_cast<const uint8_t*>(bad_bm.data),
+                                                  cast_set<int>(bad_bm.size), 1);
+            return std::make_pair(std::move(it), std::move(stats));
+        };
+
+        // 1. Normal read_by_rowids from page start (hits GetNextRun without calling Skip).
+        {
+            auto [it, st_holder] = prepare_normal();
+            const rowid_t rids[] = {0, 1};
+            MutableColumnPtr dst = col_type->create_column();
+            Status st = it->read_by_rowids(rids, 2, dst);
+            EXPECT_TRUE(st.is<ErrorCode::CORRUPTION>()) << "bm=" << bm_idx << " " << st.to_string();
+        }
+
+        // 2. Normal next_batch from page start (hits GetNextRun).
+        {
+            auto [it, st_holder] = prepare_normal();
+            MutableColumnPtr dst = col_type->create_column();
+            size_t n = 4;
+            bool has_null = false;
+            Status st = it->next_batch(&n, dst, &has_null);
+            EXPECT_TRUE(st.is<ErrorCode::CORRUPTION>()) << "bm=" << bm_idx << " " << st.to_string();
+        }
+
+        // 3. NULL_MAP_ONLY next_batch from page start (hits GetNextRun).
+        {
+            auto [it, st_holder] = prepare_null_map_only();
+            MutableColumnPtr dst = col_type->create_column();
+            size_t n = 4;
+            bool has_null = false;
+            Status st = it->next_batch(&n, dst, &has_null);
+            EXPECT_TRUE(st.is<ErrorCode::CORRUPTION>()) << "bm=" << bm_idx << " " << st.to_string();
+        }
+
+        // 4. NULL_MAP_ONLY read_by_rowids from page start (hits GetNextRun).
+        {
+            auto [it, st_holder] = prepare_null_map_only();
+            const rowid_t rids[] = {0, 1};
+            MutableColumnPtr dst = col_type->create_column();
+            Status st = it->read_by_rowids(rids, 2, dst);
+            EXPECT_TRUE(st.is<ErrorCode::CORRUPTION>()) << "bm=" << bm_idx << " " << st.to_string();
+        }
+
+        // 5. _seek_to_pos_in_page via seek_to_ordinal(2) (hits null_decoder.Skip).
+        {
+            auto [it, st_holder] = prepare_normal();
+            Status st = it->seek_to_ordinal(2);
+            EXPECT_TRUE(st.is<ErrorCode::CORRUPTION>()) << "bm=" << bm_idx << " " << st.to_string();
+        }
+    }
 }
 
 } // namespace doris::segment_v2

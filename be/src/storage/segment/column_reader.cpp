@@ -2933,6 +2933,10 @@ Status FileColumnIterator::seek_to_page_start() {
 }
 
 Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const {
+    if (UNLIKELY(offset_in_page > page->num_rows)) {
+        return Status::Corruption("Seek offset {} out of page range [0, {}] in column '{}'",
+                                  offset_in_page, page->num_rows, _column_name);
+    }
     if (page->offset_in_page == offset_in_page) {
         // fast path, do nothing
         return Status::OK();
@@ -2953,7 +2957,11 @@ Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offs
                                                   cast_set<int>(page->null_bitmap.size), 1);
         }
 
-        auto skip_nulls = page->null_decoder.Skip(skips);
+        size_t skip_nulls = 0;
+        if (UNLIKELY(!page->null_decoder.Skip(skips, &skip_nulls))) {
+            return Status::Corruption("Null bitmap exhausted while seeking to offset {} in page",
+                                      offset_in_page);
+        }
         pos_in_data = offset_in_data + skips - skip_nulls;
     }
 
@@ -3027,6 +3035,11 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
                 while (nrows_to_read > 0) {
                     bool is_null = false;
                     size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
+                    if (UNLIKELY(this_run == 0)) {
+                        return Status::Corruption(
+                                "Null bitmap exhausted at offset {} (num_rows={}) in column '{}'",
+                                _page.offset_in_page, _page.num_rows, _column_name);
+                    }
                     const size_t cur_size = null_map_data.size();
                     null_map_data.resize(cur_size + this_run);
                     memset(null_map_data.data() + cur_size, is_null ? 1 : 0, this_run);
@@ -3071,6 +3084,11 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
             while (nrows_to_read > 0) {
                 bool is_null = false;
                 size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
+                if (UNLIKELY(this_run == 0)) {
+                    return Status::Corruption(
+                            "Null bitmap exhausted at offset {} (num_rows={}) in column '{}'",
+                            _page.offset_in_page, _page.num_rows, _column_name);
+                }
                 // we use num_rows only for CHECK
                 size_t num_rows = this_run;
                 if (!is_null) {
@@ -3136,26 +3154,45 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
         size_t total_read_count = 0;
         size_t nrows_to_read = 0;
         while (remaining > 0) {
+            if (UNLIKELY(rowids[total_read_count] >= _reader->num_rows())) {
+                return Status::Corruption("Rowid {} out of range [0, {}) in column '{}'",
+                                          rowids[total_read_count], _reader->num_rows(),
+                                          _column_name);
+            }
             RETURN_IF_ERROR(seek_to_ordinal(rowids[total_read_count]));
 
             nrows_to_read = std::min(remaining, _page.remaining());
+            if (UNLIKELY(nrows_to_read == 0)) {
+                return Status::Corruption("Rowid {} out of page range [{}, {}) in column '{}'",
+                                          rowids[total_read_count], _page.first_ordinal,
+                                          _page.first_ordinal + _page.num_rows, _column_name);
+            }
 
             if (_page.has_null) {
                 size_t already_read = 0;
                 while ((nrows_to_read - already_read) > 0) {
+                    size_t offset = total_read_count + already_read;
+                    rowid_t current_ordinal_in_page =
+                            cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
+                    if (UNLIKELY(rowids[offset] < current_ordinal_in_page)) {
+                        break;
+                    }
                     bool is_null = false;
                     size_t this_run = std::min(nrows_to_read - already_read, _page.remaining());
                     if (UNLIKELY(this_run == 0)) {
                         break;
                     }
                     this_run = _page.null_decoder.GetNextRun(&is_null, this_run);
+                    if (UNLIKELY(this_run == 0)) {
+                        return Status::Corruption(
+                                "Null bitmap exhausted at offset {} (num_rows={}) in column '{}'",
+                                _page.offset_in_page, _page.num_rows, _column_name);
+                    }
 
-                    size_t offset = total_read_count + already_read;
                     size_t this_read_count = 0;
-                    rowid_t current_ordinal_in_page =
-                            cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
                     for (size_t i = 0; i < this_run; ++i) {
-                        if (rowids[offset + i] - current_ordinal_in_page >= this_run) {
+                        if (UNLIKELY(rowids[offset + i] < current_ordinal_in_page) ||
+                            rowids[offset + i] - current_ordinal_in_page >= this_run) {
                             break;
                         }
                         this_read_count++;
@@ -3171,6 +3208,12 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 }
 
                 nrows_to_read = already_read;
+                if (UNLIKELY(nrows_to_read == 0)) {
+                    return Status::InternalError(
+                            "Failed to make progress in nullable read_by_rowids at rowid {} in "
+                            "column '{}'",
+                            rowids[total_read_count], _column_name);
+                }
                 total_read_count += nrows_to_read;
                 remaining -= nrows_to_read;
             } else {
@@ -3178,12 +3221,18 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                         cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
                 size_t rows_in_current_page = 0;
                 for (size_t i = 0; i < nrows_to_read; ++i) {
-                    if (rowids[total_read_count + i] - current_ordinal_in_page >= nrows_to_read) {
+                    if (UNLIKELY(rowids[total_read_count + i] < current_ordinal_in_page) ||
+                        rowids[total_read_count + i] - current_ordinal_in_page >= nrows_to_read) {
                         break;
                     }
                     ++rows_in_current_page;
                 }
                 DCHECK_GT(rows_in_current_page, 0);
+                if (UNLIKELY(rows_in_current_page == 0)) {
+                    return Status::InternalError(
+                            "Failed to make progress in read_by_rowids at rowid {} in column '{}'",
+                            rowids[total_read_count], _column_name);
+                }
                 memset(null_map_data.data() + base_size + total_read_count, 0,
                        rows_in_current_page);
                 _page.offset_in_page += rows_in_current_page;
@@ -3201,26 +3250,44 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
     size_t total_read_count = 0;
     size_t nrows_to_read = 0;
     while (remaining > 0) {
+        if (UNLIKELY(rowids[total_read_count] >= _reader->num_rows())) {
+            return Status::Corruption("Rowid {} out of range [0, {}) in column '{}'",
+                                      rowids[total_read_count], _reader->num_rows(), _column_name);
+        }
         RETURN_IF_ERROR(seek_to_ordinal(rowids[total_read_count]));
 
         // number of rows to be read from this page
         nrows_to_read = std::min(remaining, _page.remaining());
+        if (UNLIKELY(nrows_to_read == 0)) {
+            return Status::Corruption("Rowid {} out of page range [{}, {}) in column '{}'",
+                                      rowids[total_read_count], _page.first_ordinal,
+                                      _page.first_ordinal + _page.num_rows, _column_name);
+        }
 
         if (_page.has_null) {
             size_t already_read = 0;
             while ((nrows_to_read - already_read) > 0) {
+                size_t offset = total_read_count + already_read;
+                rowid_t current_ordinal_in_page =
+                        cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
+                if (UNLIKELY(rowids[offset] < current_ordinal_in_page)) {
+                    break;
+                }
                 bool is_null = false;
                 size_t this_run = std::min(nrows_to_read - already_read, _page.remaining());
                 if (UNLIKELY(this_run == 0)) {
                     break;
                 }
                 this_run = _page.null_decoder.GetNextRun(&is_null, this_run);
-                size_t offset = total_read_count + already_read;
+                if (UNLIKELY(this_run == 0)) {
+                    return Status::Corruption(
+                            "Null bitmap exhausted at offset {} (num_rows={}) in column '{}'",
+                            _page.offset_in_page, _page.num_rows, _column_name);
+                }
                 size_t this_read_count = 0;
-                rowid_t current_ordinal_in_page =
-                        cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
                 for (size_t i = 0; i < this_run; ++i) {
-                    if (rowids[offset + i] - current_ordinal_in_page >= this_run) {
+                    if (UNLIKELY(rowids[offset + i] < current_ordinal_in_page) ||
+                        rowids[offset + i] - current_ordinal_in_page >= this_run) {
                         break;
                     }
                     this_read_count++;
@@ -3262,6 +3329,12 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             }
 
             nrows_to_read = already_read;
+            if (UNLIKELY(nrows_to_read == 0)) {
+                return Status::InternalError(
+                        "Failed to make progress in nullable read_by_rowids at rowid {} in column "
+                        "'{}'",
+                        rowids[total_read_count], _column_name);
+            }
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         } else {
@@ -3269,6 +3342,12 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 return _page.data_decoder->read_by_rowids(
                         &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, values);
             }));
+            _page.offset_in_page = cast_set<ordinal_t>(_page.data_decoder->current_index());
+            if (UNLIKELY(nrows_to_read == 0)) {
+                return Status::InternalError(
+                        "Failed to make progress in read_by_rowids at rowid {} in column '{}'",
+                        rowids[total_read_count], _column_name);
+            }
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         }

@@ -183,29 +183,34 @@ public:
 
     Status seek_to_position_in_page(size_t pos) override {
         DCHECK(_parsed) << "Must call init()";
-        DCHECK_LE(pos, _num_elements)
-                << "Tried to seek to " << pos << " which is > number of elements (" << _num_elements
-                << ") in the block!";
+        if (UNLIKELY(pos > _num_elements)) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                    "seek pos {} is larger than total elements  {}", pos, _num_elements);
+        }
         // If the block is empty (e.g. the column is filled with nulls), there is no data to seek.
         if (_num_elements == 0) [[unlikely]] {
-            if (pos != 0) {
-                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                        "seek pos {} is larger than total elements  {}", pos, _num_elements);
-            } else {
-                return Status::OK();
-            }
+            return Status::OK();
         }
         if (_cur_index == pos) {
             // No need to seek.
             return Status::OK();
         } else if (_cur_index < pos) {
             size_t nskip = pos - _cur_index;
-            _rle_decoder.Skip(nskip);
+            if (UNLIKELY(!_rle_decoder.Skip(nskip, nullptr))) {
+                return Status::Corruption(
+                        "RLE page data exhausted while seeking forward to {} (num_elements={})",
+                        pos, _num_elements);
+            }
         } else {
-            _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
-                                               cast_set<int>(_data.size - RLE_PAGE_HEADER_SIZE),
-                                               _bit_width);
-            _rle_decoder.Skip(pos);
+            auto rewind_decoder = RleDecoder<CppType>(
+                    (uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
+                    cast_set<int>(_data.size - RLE_PAGE_HEADER_SIZE), _bit_width);
+            if (UNLIKELY(!rewind_decoder.Skip(pos, nullptr))) {
+                return Status::Corruption(
+                        "RLE page data exhausted while seeking to {} (num_elements={})", pos,
+                        _num_elements);
+            }
+            _rle_decoder = rewind_decoder;
         }
         _cur_index = pos;
         return Status::OK();
@@ -220,11 +225,13 @@ public:
 
         size_t to_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
         size_t remaining = to_fetch;
-        bool result = false;
         CppType value;
         while (remaining > 0) {
-            result = _rle_decoder.Get(&value);
-            DCHECK(result);
+            if (UNLIKELY(!_rle_decoder.Get(&value))) {
+                return Status::Corruption(
+                        "RLE page data exhausted in next_batch at index {} (num_elements={})",
+                        _cur_index + (to_fetch - remaining), _num_elements);
+            }
             dst->insert_data((char*)(&value), SIZE_OF_TYPE);
             remaining--;
         }
@@ -237,28 +244,42 @@ public:
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
+        if (UNLIKELY(*n == 0 || _num_elements == 0)) {
             *n = 0;
             return Status::OK();
         }
 
         auto total = *n;
-        bool result = false;
         size_t read_count = 0;
         CppType value;
         for (size_t i = 0; i < total; ++i) {
+            if (UNLIKELY(rowids[i] < page_first_ordinal)) {
+                break;
+            }
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elements)) {
-                *n = read_count;
-                return Status::OK();
+                break;
             }
 
-            _rle_decoder.Skip(ord - _cur_index);
+            if (UNLIKELY(ord < _cur_index)) {
+                _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
+                                                   cast_set<int>(_data.size - RLE_PAGE_HEADER_SIZE),
+                                                   _bit_width);
+                _cur_index = 0;
+            }
+            if (UNLIKELY(!_rle_decoder.Skip(ord - _cur_index, nullptr))) {
+                return Status::Corruption(
+                        "RLE page data exhausted while skipping to ordinal {} (num_elements={})",
+                        ord, _num_elements);
+            }
             _cur_index = ord;
 
-            result = _rle_decoder.Get(&value);
+            if (UNLIKELY(!_rle_decoder.Get(&value))) {
+                return Status::Corruption(
+                        "RLE page data exhausted while reading ordinal {} (num_elements={})", ord,
+                        _num_elements);
+            }
             _cur_index++;
-            DCHECK(result);
             dst->insert_data((char*)(&value), SIZE_OF_TYPE);
             read_count++;
         }
