@@ -200,6 +200,7 @@ message RowsetMetaPB {
     // Real segment ids in rowset position order. Empty means legacy continuous ids [0, num_segments).
     repeated int64 segment_ids = 200;
 
+    optional RowsetVariantDescFingerprintPB variant_desc_fingerprint = 202;
 }
 
 message SchemaDictKeyList {
@@ -331,6 +332,16 @@ message RowsetMetaCloudPB {
     // Real segment ids in rowset position order. Empty means legacy continuous ids [0, num_segments).
     repeated int64 segment_ids = 200;
 
+    optional RowsetVariantDescFingerprintPB variant_desc_fingerprint = 202;
+}
+
+message RowsetVariantDescFingerprintPB {
+    reserved 2, 3;
+    reserved "layout_sha256", "segment_set_sha256";
+    optional uint32 format_version = 1;
+    // Each SHA-256 digest is stored as four little-endian 64-bit words.
+    repeated fixed64 layout_sha256_words = 4 [packed = true];
+    repeated fixed64 segment_set_sha256_words = 5 [packed = true];
 }
 
 message SegmentStatisticsPB {
@@ -338,6 +349,7 @@ message SegmentStatisticsPB {
     optional int64 data_size = 2;
     optional int64 index_size = 3;
     optional KeyBoundsPB key_bounds = 4;
+    optional string variant_desc_fingerprint = 6;
 }
 
 // Local-mode only kv value for reclaiming remote rowset.

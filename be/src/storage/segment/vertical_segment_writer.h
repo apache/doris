@@ -153,6 +153,7 @@ public:
     // its index sections, and the key indexes if it holds the key columns. Ends
     // with clear(), so the next init() can follow.
     Status finalize_columns(uint64_t* index_size);
+    std::string variant_desc_fingerprint() const;
     // Ends the segment, once every group is in.
     Status finalize_footer(uint64_t* segment_file_size,
                            SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);

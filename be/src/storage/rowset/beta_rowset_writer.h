@@ -255,6 +255,7 @@ protected:
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
+    std::vector<std::pair<int64_t, std::string>> _vertical_desc_fingerprints;
 
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;

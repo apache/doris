@@ -68,6 +68,11 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     }
     out->set_num_segments(in.num_segments());
     out->mutable_segment_ids()->CopyFrom(in.segment_ids());
+    if (in.has_variant_desc_fingerprint()) {
+        out->mutable_variant_desc_fingerprint()->CopyFrom(in.variant_desc_fingerprint());
+    } else {
+        out->clear_variant_desc_fingerprint();
+    }
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -167,6 +172,11 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     }
     out->set_num_segments(in.num_segments());
     out->mutable_segment_ids()->Swap(in.mutable_segment_ids());
+    if (in.has_variant_desc_fingerprint()) {
+        out->mutable_variant_desc_fingerprint()->Swap(in.mutable_variant_desc_fingerprint());
+    } else {
+        out->clear_variant_desc_fingerprint();
+    }
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -280,6 +290,11 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     }
     out->set_num_segments(in.num_segments());
     out->mutable_segment_ids()->CopyFrom(in.segment_ids());
+    if (in.has_variant_desc_fingerprint()) {
+        out->mutable_variant_desc_fingerprint()->CopyFrom(in.variant_desc_fingerprint());
+    } else {
+        out->clear_variant_desc_fingerprint();
+    }
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -379,6 +394,11 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     }
     out->set_num_segments(in.num_segments());
     out->mutable_segment_ids()->Swap(in.mutable_segment_ids());
+    if (in.has_variant_desc_fingerprint()) {
+        out->mutable_variant_desc_fingerprint()->Swap(in.mutable_variant_desc_fingerprint());
+    } else {
+        out->clear_variant_desc_fingerprint();
+    }
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());

@@ -309,7 +309,22 @@ public:
         return _rowset_meta_pb.num_segments();
     }
 
-    void set_num_segments(int64_t num_segments) { _rowset_meta_pb.set_num_segments(num_segments); }
+    void set_num_segments(int64_t num_segments) {
+        if (num_segments != _rowset_meta_pb.num_segments()) {
+            clear_variant_desc_fingerprint();
+        }
+        _rowset_meta_pb.set_num_segments(num_segments);
+    }
+
+    const RowsetVariantDescFingerprintPB& variant_desc_fingerprint() const {
+        return _rowset_meta_pb.variant_desc_fingerprint();
+    }
+
+    RowsetVariantDescFingerprintPB* mutable_variant_desc_fingerprint() {
+        return _rowset_meta_pb.mutable_variant_desc_fingerprint();
+    }
+
+    void clear_variant_desc_fingerprint() { _rowset_meta_pb.clear_variant_desc_fingerprint(); }
 
     bool has_segment_ids() const { return _rowset_meta_pb.segment_ids_size() > 0; }
 

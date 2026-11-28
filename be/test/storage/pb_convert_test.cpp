@@ -22,6 +22,7 @@
 #include <iostream>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "google/protobuf/message.h"
@@ -184,6 +185,38 @@ auto set_diff = [](auto a, auto b) {
 
 // ensure that PBs need to be converted have identical fields, so that they can
 // be inter-converted
+TEST(PbConvert, VariantDescFingerprintRoundTrip) {
+    RowsetMetaPB local;
+    local.set_rowset_id(0);
+    const auto legacy_size = local.ByteSizeLong();
+    const auto legacy_cloud_size = doris_rowset_meta_to_cloud(local).ByteSizeLong();
+    auto* fingerprint = local.mutable_variant_desc_fingerprint();
+    fingerprint->set_format_version(2);
+    for (uint64_t word : {0ULL, 1ULL, 0x8000000000000000ULL, 0xffffffffffffffffULL}) {
+        fingerprint->add_layout_sha256_words(word);
+        fingerprint->add_segment_set_sha256_words(~word);
+    }
+    const auto expected = fingerprint->SerializeAsString();
+    EXPECT_EQ(73, local.ByteSizeLong() - legacy_size);
+
+    auto cloud = doris_rowset_meta_to_cloud(local);
+    EXPECT_EQ(73, cloud.ByteSizeLong() - legacy_cloud_size);
+    EXPECT_EQ(expected, cloud.variant_desc_fingerprint().SerializeAsString());
+    EXPECT_EQ(expected, cloud_rowset_meta_to_doris(cloud).variant_desc_fingerprint().SerializeAsString());
+
+    auto moved_cloud = doris_rowset_meta_to_cloud(std::move(local));
+    EXPECT_EQ(expected, moved_cloud.variant_desc_fingerprint().SerializeAsString());
+    auto moved_local = cloud_rowset_meta_to_doris(std::move(moved_cloud));
+    EXPECT_EQ(expected, moved_local.variant_desc_fingerprint().SerializeAsString());
+
+    RowsetMetaPB legacy_local;
+    legacy_local.set_rowset_id(0);
+    doris_rowset_meta_to_cloud(&cloud, legacy_local);
+    EXPECT_FALSE(cloud.has_variant_desc_fingerprint());
+    cloud_rowset_meta_to_doris(&moved_local, std::move(cloud));
+    EXPECT_FALSE(moved_local.has_variant_desc_fingerprint());
+}
+
 TEST(PbConvert, ensure_identical_fields) {
     EXPECT_EQ(RowsetMetaPB::GetDescriptor()->field_count(), RowsetMetaCloudPB::GetDescriptor()->field_count());
     EXPECT_EQ(TabletSchemaPB::GetDescriptor()->field_count(),
