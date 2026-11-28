@@ -224,6 +224,14 @@ public class StatisticsUtil {
         sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
+        int maxScannersConcurrency = Config.statistics_sql_max_scanners_concurrency;
+        if (maxScannersConcurrency > 0) {
+            sessionVariable.setMaxScannersConcurrency(maxScannersConcurrency);
+        }
+        int maxFileScannersConcurrency = Config.statistics_sql_max_file_scanners_concurrency;
+        if (maxFileScannersConcurrency > 0) {
+            sessionVariable.maxFileScannersConcurrency = maxFileScannersConcurrency;
+        }
         sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
