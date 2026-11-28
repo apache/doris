@@ -1332,31 +1332,8 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
             sought_key.get_data(),
             sought_key.get_size() - (segment_has_seq_col ? seq_col_length : 0) - rowid_length);
 
-    if (has_seq_col) {
-        // compare key
-        if (key_without_seq.compare(sought_key_without_seq) != 0) {
-            return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
-        }
-
-        if (with_seq_col && segment_has_seq_col) {
-            // compare sequence id
-            Slice sequence_id =
-                    Slice(key.get_data() + key_without_seq.get_size() + 1, seq_col_length - 1);
-            Slice previous_sequence_id =
-                    Slice(sought_key.get_data() + sought_key_without_seq.get_size() + 1,
-                          seq_col_length - 1);
-            if (sequence_id.compare(previous_sequence_id) < 0) {
-                return Status::Error<ErrorCode::KEY_ALREADY_EXISTS>(
-                        "key with higher sequence id exists");
-            }
-        }
-    } else if (has_rowid) {
-        Slice sought_key_without_rowid =
-                Slice(sought_key.get_data(), sought_key.get_size() - rowid_length);
-        // compare key
-        if (key_without_seq.compare(sought_key_without_rowid) != 0) {
-            return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
-        }
+    if ((has_seq_col || has_rowid) && key_without_seq.compare(sought_key_without_seq) != 0) {
+        return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
     }
     // found the key, use rowid in pk index if necessary.
     if (has_rowid) {
@@ -1366,6 +1343,17 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
         const auto* rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
         RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
                                                       (uint8_t*)&row_location->row_id));
+    }
+
+    // The caller checks visibility at the physical row ID even for a higher-sequence match.
+    if (has_seq_col && with_seq_col && segment_has_seq_col) {
+        Slice sequence_id(key.get_data() + key_without_seq.get_size() + 1, seq_col_length - 1);
+        Slice previous_sequence_id(sought_key.get_data() + sought_key_without_seq.get_size() + 1,
+                                   seq_col_length - 1);
+        if (sequence_id.compare(previous_sequence_id) < 0) {
+            return Status::Error<ErrorCode::KEY_ALREADY_EXISTS>(
+                    "key with higher sequence id exists");
+        }
     }
 
     if (encoded_seq_value) {
