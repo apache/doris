@@ -21,10 +21,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
+import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -33,7 +35,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -46,34 +50,70 @@ import java.util.Optional;
 public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalOlapScan().then(olapScan ->
-                new PhysicalOlapScan(
-                        olapScan.getRelationId(),
-                        olapScan.getTable(),
-                        olapScan.getQualifier(),
-                        olapScan.getSelectedIndexId(),
-                        olapScan.getSelectedTabletIds(),
-                        olapScan.getSelectedPartitionIds(),
-                        olapScan.hasPartitionPredicate(),
-                        convertDistribution(olapScan),
-                        olapScan.getPreAggStatus(),
-                        olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
-                        Optional.empty(),
-                        olapScan.getLogicalProperties(),
-                        null,
-                        null,
-                        olapScan.getTableSample(),
-                        olapScan.getOperativeSlots(),
-                        olapScan.getVirtualColumns(),
-                        olapScan.getScoreOrderKeys(),
-                        olapScan.getScoreLimit(),
-                        olapScan.getScoreRangeInfo(),
-                        olapScan.getAnnOrderKeys(),
-                        olapScan.getAnnLimit(),
-                        olapScan.getTableAlias(),
-                        olapScan.getPartitionPrunablePredicates(),
-                        olapScan.getScanParams())
-        ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
+        return logicalOlapScan().thenApplyMulti(ctx -> {
+            LogicalOlapScan olapScan = ctx.root;
+            DistributionSpec distribution = convertDistribution(olapScan);
+            if (SessionVariable.canUseNereidsDistributePlanner(ctx.connectContext)
+                    && canUseSingleTabletGather(olapScan, ctx.connectContext.getSessionVariable(),
+                    ctx.connectContext.getSessionVariable().resolveCloudClusterName(ctx.connectContext))) {
+                // Keep the natural distribution candidate for colocate/bucket-shuffle plans.
+                return ImmutableList.of(implement(olapScan, distribution),
+                        implement(olapScan, DistributionSpecStorageGather.INSTANCE));
+            }
+            return ImmutableList.of(implement(olapScan, distribution));
+        }).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
+    }
+
+    private PhysicalOlapScan implement(LogicalOlapScan olapScan, DistributionSpec distribution) {
+        return new PhysicalOlapScan(
+                olapScan.getRelationId(),
+                olapScan.getTable(),
+                olapScan.getQualifier(),
+                olapScan.getSelectedIndexId(),
+                olapScan.getSelectedTabletIds(),
+                olapScan.getSelectedPartitionIds(),
+                olapScan.hasPartitionPredicate(),
+                distribution,
+                olapScan.getPreAggStatus(),
+                olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
+                Optional.empty(),
+                olapScan.getLogicalProperties(),
+                null,
+                null,
+                olapScan.getTableSample(),
+                olapScan.getOperativeSlots(),
+                olapScan.getVirtualColumns(),
+                olapScan.getScoreOrderKeys(),
+                olapScan.getScoreLimit(),
+                olapScan.getScoreRangeInfo(),
+                olapScan.getAnnOrderKeys(),
+                olapScan.getAnnLimit(),
+                olapScan.getTableAlias(),
+                olapScan.getPartitionPrunablePredicates(),
+                olapScan.getScanParams());
+    }
+
+    /** A storage gather must execute the entire selected input in one instance. */
+    static boolean canUseSingleTabletGather(LogicalOlapScan scan, SessionVariable session, String clusterName) {
+        if (!session.enableSingleTabletGather || !session.isEnableNereidsDistributePlanner()
+                || session.getParallelExecInstanceNum(clusterName) != 1
+                || session.getEnableQueryCache() || scan.getTableSample().isPresent()
+                || scan.getScanParams().isPresent()) {
+            return false;
+        }
+        if (!scan.getSelectedTabletIds().isEmpty()) {
+            return scan.getSelectedTabletIds().size() == 1;
+        }
+        // An empty pruned-tablet list means no tablet restriction, not an empty scan.
+        int tablets = 0;
+        for (long partitionId : scan.getSelectedPartitionIds()) {
+            Partition partition = scan.getTable().getPartition(partitionId);
+            tablets += scan.getTable().getPartitionIndex(partition, scan.getSelectedIndexId()).getTablets().size();
+            if (tablets > 1) {
+                return false;
+            }
+        }
+        return tablets == 1;
     }
 
     /** convertDistribution */
