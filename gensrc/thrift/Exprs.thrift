@@ -136,6 +136,9 @@ struct TTimeV2Literal {
 
 struct TFloatLiteral {
   1: required double value
+  // Use these IEEE 754 binary64 bits instead of value when this field is present.
+  // Java Thrift changes negative NaN to positive NaN in the double field.
+  2: optional i64 raw_bits
 }
 
 struct TDecimalLiteral {

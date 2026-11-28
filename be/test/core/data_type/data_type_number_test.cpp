@@ -22,6 +22,8 @@
 #include <gtest/gtest.h>
 #include <streamvbyte.h>
 
+#include <bit>
+#include <cmath>
 #include <cstddef>
 #include <iostream>
 #include <limits>
@@ -61,6 +63,37 @@ static ColumnInt32::MutablePtr column_int32;
 static ColumnInt64::MutablePtr column_int64;
 static ColumnInt128::MutablePtr column_int128;
 static ColumnUInt8::MutablePtr column_uint8;
+
+TEST(DataTypeNumberLiteralTest, NaNSignFromThrift) {
+    // Java Thrift writes a positive NaN in value, even when the input is negative.
+    // One literal for each sign is sufficient. raw_bits must restore the input sign.
+    for (bool negative : {false, true}) {
+        TExprNode node;
+        node.float_literal.__set_value(std::numeric_limits<double>::quiet_NaN());
+        const uint64_t bits = negative ? 0xfff8000000000000ULL : 0x7ff8000000000000ULL;
+        node.float_literal.__set_raw_bits(std::bit_cast<int64_t>(bits));
+
+        const auto float_value = DataTypeFloat32().get_field(node).get<TYPE_FLOAT>();
+        const auto double_value = DataTypeFloat64().get_field(node).get<TYPE_DOUBLE>();
+        EXPECT_TRUE(std::isnan(float_value));
+        EXPECT_TRUE(std::isnan(double_value));
+        EXPECT_EQ(std::signbit(float_value), negative);
+        EXPECT_EQ(std::signbit(double_value), negative);
+    }
+}
+
+TEST(DataTypeNumberLiteralTest, LegacyThriftValue) {
+    // Old FE versions send only value. Negative zero checks that this path keeps its sign.
+    TExprNode node;
+    node.float_literal.__set_value(-0.0);
+    ASSERT_FALSE(node.float_literal.__isset.raw_bits);
+    const auto float_value = DataTypeFloat32().get_field(node).get<TYPE_FLOAT>();
+    const auto double_value = DataTypeFloat64().get_field(node).get<TYPE_DOUBLE>();
+    EXPECT_EQ(float_value, 0.0F);
+    EXPECT_EQ(double_value, 0.0);
+    EXPECT_TRUE(std::signbit(float_value));
+    EXPECT_TRUE(std::signbit(double_value));
+}
 
 class DataTypeNumberTest : public ::testing::Test {
 public:

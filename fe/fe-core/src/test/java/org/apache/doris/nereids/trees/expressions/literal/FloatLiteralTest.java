@@ -40,6 +40,16 @@ import java.util.function.Function;
 
 public class FloatLiteralTest {
     @Test
+    public void testLegacyLiteralPreservesNaNSign() {
+        // One negative NaN is enough to expose the text conversion error.
+        // Float.toString returns "NaN" for both signs. Check the bits, not NaN equality.
+        FloatLiteral literal = new FloatLiteral(Float.intBitsToFloat(0xffc00000));
+        double legacyValue = literal.toLegacyLiteral().getDoubleValue();
+        Assertions.assertTrue(Double.isNaN(legacyValue));
+        Assertions.assertEquals(0xfff8000000000000L, Double.doubleToRawLongBits(legacyValue));
+    }
+
+    @Test
     public void testChecker() {
         assertValid(
                 "123.45",

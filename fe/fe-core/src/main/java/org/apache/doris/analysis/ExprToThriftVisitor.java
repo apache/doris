@@ -25,6 +25,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.ThriftUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TAggregateExpr;
 import org.apache.doris.thrift.TBoolLiteral;
@@ -36,7 +37,6 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
-import org.apache.doris.thrift.TFloatLiteral;
 import org.apache.doris.thrift.TIPv4Literal;
 import org.apache.doris.thrift.TIPv6Literal;
 import org.apache.doris.thrift.TInPredicate;
@@ -178,7 +178,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     @Override
     public Void visitFloatLiteral(FloatLiteral expr, TExprNode msg) {
         msg.node_type = TExprNodeType.FLOAT_LITERAL;
-        msg.float_literal = new TFloatLiteral(expr.getValue());
+        msg.float_literal = ThriftUtils.toThriftFloatLiteral(expr.getValue());
         return null;
     }
 
@@ -360,7 +360,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
             case FLOAT:
             case DOUBLE:
                 msg.node_type = TExprNodeType.FLOAT_LITERAL;
-                msg.float_literal = new TFloatLiteral(expr.getFloatValue());
+                msg.float_literal = ThriftUtils.toThriftFloatLiteral(expr.getFloatValue());
                 break;
             default:
                 if (expr.getStrValue() == null) {

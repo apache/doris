@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.thrift.TFloatLiteral;
+
 import org.apache.thrift.TBase;
 import org.apache.thrift.TConfiguration;
 import org.apache.thrift.TException;
@@ -26,6 +28,21 @@ import org.apache.thrift.transport.TTransportException;
 
 // Utility functions for thrift
 public class ThriftUtils {
+    public static TFloatLiteral toThriftFloatLiteral(double value) {
+        TFloatLiteral literal = new TFloatLiteral(value);
+        // Java Thrift writes every NaN as a positive NaN. An integer field keeps the sign.
+        // For example, signbit(-NaN) must stay true after a request reaches BE.
+        if (Double.isNaN(value)) {
+            literal.setRawBits(Double.doubleToRawLongBits(value));
+        }
+        return literal;
+    }
+
+    public static double fromThriftFloatLiteral(TFloatLiteral literal) {
+        // Old senders omit raw_bits. Read value for those messages and for ordinary numbers.
+        return literal.isSetRawBits() ? Double.longBitsToDouble(literal.getRawBits()) : literal.getValue();
+    }
+
     // Get the size of the binary message of the thrift object
     public static long getBinaryMessageSize(TBase<?, ?> thriftObject) {
         TSizeTransport trans = new TSizeTransport();

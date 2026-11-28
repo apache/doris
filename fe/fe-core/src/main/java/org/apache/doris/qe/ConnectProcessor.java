@@ -47,6 +47,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.ThriftUtils;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
@@ -770,7 +771,7 @@ public abstract class ConnectProcessor {
             case BOOL_LITERAL: return new BoolLiteral(node.bool_literal.value);
             case INT_LITERAL: return new IntLiteral(node.int_literal.value);
             case LARGE_INT_LITERAL: return new LargeIntLiteral(node.large_int_literal.value);
-            case FLOAT_LITERAL: return new FloatLiteral(node.float_literal.value);
+            case FLOAT_LITERAL: return new FloatLiteral(ThriftUtils.fromThriftFloatLiteral(node.float_literal));
             case DECIMAL_LITERAL: return DecimalLiteralUtils.create(node.decimal_literal.value);
             case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
             case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
