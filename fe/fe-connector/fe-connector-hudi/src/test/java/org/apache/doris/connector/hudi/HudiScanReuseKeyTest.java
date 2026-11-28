@@ -81,6 +81,10 @@ class HudiScanReuseKeyTest {
                 .partitionKeyNames(Arrays.asList("month", "year"))
                 .build()));
         variants.put("generation", HudiScanPlanProvider.hudiScanReuseKey(handle(), "later-generation"));
+        variants.put("required partitions", HudiScanPlanProvider.hudiScanReuseKey(
+                handle(), "test-generation", Collections.singletonList("year=2025/month=01"), false));
+        variants.put("pruned to empty", HudiScanPlanProvider.hudiScanReuseKey(
+                handle(), "test-generation", Collections.emptyList(), true));
         variants.put("base path", key(handleAt("db", "t", "/warehouse/t_rewritten")));
         variants.put("database", key(handleAt("db2", "t", "/warehouse/t")));
         variants.put("table", key(handleAt("db", "t2", "/warehouse/t")));
@@ -185,6 +189,34 @@ class HudiScanReuseKeyTest {
                 "an unpruned time-travel alias must not reuse a zero-pruned alias's empty ranges");
         Assertions.assertEquals(2, provider.planCalls,
                 "the two semantic partition states must occupy separate statement-cache entries");
+    }
+
+    @Test
+    void statementReuseSeparatesDifferentRequiredPartitionsAndPrunedToEmpty() {
+        RecordingScanProvider provider = new RecordingScanProvider();
+        HudiTableHandle base = handle().toBuilder().prunedPartitionPaths(null).build();
+        ConnectorSession session = new MemoSession(new MemoScope());
+
+        List<ConnectorScanRange> janRanges = provider.planScan(session,
+                ConnectorScanRequest.builder(base, Collections.<ConnectorColumnHandle>emptyList())
+                        .requiredPartitions(Collections.singletonList("year=2025/month=01"))
+                        .build());
+        List<ConnectorScanRange> febRanges = provider.planScan(session,
+                ConnectorScanRequest.builder(base, Collections.<ConnectorColumnHandle>emptyList())
+                        .requiredPartitions(Collections.singletonList("year=2025/month=02"))
+                        .build());
+        List<ConnectorScanRange> emptyRanges = provider.planScan(session,
+                ConnectorScanRequest.builder(base, Collections.<ConnectorColumnHandle>emptyList())
+                        .partitionsPrunedToEmpty(true)
+                        .build());
+
+        Assertions.assertEquals(1, janRanges.size());
+        Assertions.assertEquals(1, febRanges.size());
+        Assertions.assertNotSame(janRanges, febRanges,
+                "two scan aliases with different Nereids requiredPartitions must not share cached ranges");
+        Assertions.assertTrue(emptyRanges.isEmpty(),
+                "a pruned-to-empty scan alias must not reuse a non-empty alias's ranges");
+        Assertions.assertEquals(3, provider.planCalls);
     }
 
     @Test
@@ -325,10 +357,14 @@ class HudiScanReuseKeyTest {
         @Override
         List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request) {
             planCalls++;
+            if (request.isPartitionsPrunedToEmpty()) {
+                return Collections.emptyList();
+            }
             HudiTableHandle scanHandle = (HudiTableHandle) request.getTableHandle();
-            return scanHandle.getPrunedPartitionPaths() == null
-                    ? Collections.singletonList(RANGE)
-                    : Collections.emptyList();
+            if (scanHandle.getPrunedPartitionPaths() != null && scanHandle.getPrunedPartitionPaths().isEmpty()) {
+                return Collections.emptyList();
+            }
+            return Collections.singletonList(RANGE);
         }
 
         @Override

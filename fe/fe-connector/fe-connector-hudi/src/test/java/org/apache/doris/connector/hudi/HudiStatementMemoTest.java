@@ -18,18 +18,26 @@
 package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -60,9 +68,15 @@ public class HudiStatementMemoTest {
     private static final class RecordingMetadata extends HudiConnectorMetadata {
         int schemaLoads;
         int instantLoads;
+        int metadataPartitionLoads;
+        int hmsPartitionLoads;
 
         RecordingMetadata() {
-            super(null, HudiTestProperties.minimal(), null);
+            this(HudiTestProperties.minimal());
+        }
+
+        RecordingMetadata(HudiCatalogProperties props) {
+            super(null, props, null);
         }
 
         @Override
@@ -77,10 +91,52 @@ public class HudiStatementMemoTest {
             this.instantLoads++;
             return INSTANT;
         }
+
+        @Override
+        PartitionState latestPartitionState(HudiTableHandle handle) {
+            return new PartitionState(1704110400000L, true);
+        }
+
+        @Override
+        boolean urlEncodePartitioning(HudiTableHandle handle, List<String> paths) {
+            return true;
+        }
+
+        @Override
+        Listing loadMetadataListing(HudiTableHandle handle, String queryInstant) {
+            this.metadataPartitionLoads++;
+            List<String> all = Arrays.asList("2024/01", "2025/01");
+            if (queryInstant == null) {
+                return unpinnedListing(1704110400000L, all, true);
+            }
+            List<String> atPin = "20240101000000000".equals(queryInstant)
+                    ? Collections.singletonList("2024/01")
+                    : all;
+            return pinnedListing(1704110400000L, all, 1704067200000L, atPin, true);
+        }
+
+        @Override
+        HmsPartitionListing loadHmsPartitionListing(HudiTableHandle handle, boolean bypassCache) {
+            this.hmsPartitionLoads++;
+            return new HmsPartitionListing(true, Arrays.asList("year=2024/month=01", "year=2025/month=01"));
+        }
     }
 
     private static HudiTableHandle handle() {
         return new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE").build();
+    }
+
+    private static HudiTableHandle partitionedHandle() {
+        return new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Arrays.asList("year", "month"))
+                .build();
+    }
+
+    private static ConnectorFilterConstraint yearEq2024() {
+        return new ConnectorFilterConstraint(new ConnectorComparison(
+                ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("year", ConnectorType.of("STRING")),
+                new ConnectorLiteral(ConnectorType.of("STRING"), "2024")));
     }
 
     @Test
@@ -131,6 +187,81 @@ public class HudiStatementMemoTest {
     }
 
     @Test
+    public void metadataPartitionListingIsSharedBetweenListPartitionsAndApplyFilter() {
+        RecordingMetadata m = new RecordingMetadata();
+        MemoSession session = new MemoSession(7L, "q1", new MemoScope());
+        HudiTableHandle h = partitionedHandle();
+
+        List<ConnectorPartitionInfo> listed = m.listPartitions(session, h, Optional.empty());
+        HudiTableHandle pruned = (HudiTableHandle) m.applyFilter(session, h, yearEq2024()).orElseThrow().getHandle();
+
+        Assertions.assertEquals(2, listed.size());
+        Assertions.assertEquals(Collections.singletonList("2024/01"), pruned.getPrunedPartitionPaths());
+        Assertions.assertEquals(1, m.metadataPartitionLoads,
+                "listPartitions and applyFilter in one statement must share a single Hudi metadata partition load");
+
+        // Null session and NONE scope keep per-call loading.
+        m.listPartitions(null, h, Optional.empty());
+        m.applyFilter(null, h, yearEq2024());
+        Assertions.assertEquals(3, m.metadataPartitionLoads);
+    }
+
+    @Test
+    public void partitionListingsAreReleasedWhenPlanningEnds() {
+        MemoScope scope = new MemoScope();
+        MemoSession session = new MemoSession(7L, "q1", scope);
+        HudiTableHandle table = partitionedHandle();
+        RecordingMetadata metadata = new RecordingMetadata();
+        RecordingMetadata hms = new RecordingMetadata(
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"));
+        for (int i = 1; i <= 2; i++) {
+            metadata.listPartitions(session, table, Optional.empty());
+            hms.listPartitions(session, table, Optional.empty());
+            Assertions.assertEquals(i, metadata.metadataPartitionLoads);
+            Assertions.assertEquals(i, hms.hmsPartitionLoads);
+            scope.endPlanning();
+        }
+    }
+
+    @Test
+    public void pinnedMetadataPartitionListingSeedsUnpinnedMemoWithoutCouplingDifferentPins() {
+        RecordingMetadata m = new RecordingMetadata();
+        MemoSession session = new MemoSession(7L, "q1", new MemoScope());
+        HudiTableHandle earlyPin = partitionedHandle().toBuilder().queryInstant("20240101000000000").build();
+        HudiTableHandle latePin = partitionedHandle().toBuilder().queryInstant("20250101000000000").build();
+
+        List<ConnectorPartitionInfo> earlyParts = m.listPartitions(session, earlyPin, Optional.empty());
+        HudiTableHandle earlyFiltered =
+                (HudiTableHandle) m.applyFilter(session, earlyPin, yearEq2024()).orElseThrow().getHandle();
+        List<ConnectorPartitionInfo> lateParts = m.listPartitions(session, latePin, Optional.empty());
+
+        Assertions.assertEquals(1, earlyParts.size());
+        Assertions.assertEquals(Collections.singletonList("2024/01"), earlyFiltered.getPrunedPartitionPaths());
+        Assertions.assertEquals(2, lateParts.size(),
+                "a second FOR TIME AS OF pin in the same statement must compute its own at-instant subset");
+        Assertions.assertEquals(2, m.metadataPartitionLoads,
+                "applyFilter reuses the first pin's unpinned universe while the second pin resolves its own instant");
+    }
+
+    @Test
+    public void hmsPartitionListingIsSharedWhileShowPartitionsStaysFresh() {
+        RecordingMetadata m = new RecordingMetadata(
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"));
+        MemoSession session = new MemoSession(7L, "q1", new MemoScope());
+        HudiTableHandle h = partitionedHandle();
+
+        Assertions.assertEquals(2, m.listPartitions(session, h, Optional.empty()).size());
+        HudiTableHandle pruned = (HudiTableHandle) m.applyFilter(session, h, yearEq2024()).orElseThrow().getHandle();
+        Assertions.assertEquals(Collections.singletonList("year=2024/month=01"), pruned.getPrunedPartitionPaths());
+        Assertions.assertEquals(1, m.hmsPartitionLoads,
+                "listPartitions and applyFilter in one statement must share one HMS partition load");
+
+        // SHOW PARTITIONS (listPartitionNames) bypasses the statement memo so newly synced partitions appear fresh.
+        Assertions.assertEquals(2, m.listPartitionNames(session, h).size());
+        Assertions.assertEquals(2, m.hmsPartitionLoads);
+    }
+
+    @Test
     public void allNamespacesArePrefixedWithConnectorType() throws Exception {
         // NORM (self-extending): reflect over every "*_NAMESPACE" constant this connector declares and assert each
         // is prefixed with the connector's ConnectorProvider.getType() ("hudi."). Source-prefixing keeps the value
@@ -154,6 +285,19 @@ public class HudiStatementMemoTest {
     /** A statement scope that memoizes like the engine's real one (ConcurrentHashMap computeIfAbsent). */
     private static final class MemoScope implements ConnectorStatementScope {
         private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+        private final Set<String> planningKeys = ConcurrentHashMap.newKeySet();
+
+        @Override
+        public <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
+            planningKeys.add(key);
+            return computeIfAbsent(key, loader);
+        }
+
+        @Override
+        public void endPlanning() {
+            planningKeys.forEach(cache::remove);
+            planningKeys.clear();
+        }
 
         @Override
         @SuppressWarnings("unchecked")

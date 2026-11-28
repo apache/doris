@@ -294,26 +294,21 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         List<String> allPartPaths;
         List<String> matchedPartPaths;
         if (hiveSync && !pinned) {
-            allPartPaths = hmsClient.listPartitionNames(
-                    hudiHandle.getDbName(), hudiHandle.getTableName(), -1);
-            if (allPartPaths == null || allPartPaths.isEmpty()) {
+            HmsPartitionListing hmsListing = HudiStatementScope.sharedHmsPartitions(
+                    session, hudiHandle, () -> loadHmsPartitionListing(hudiHandle, false));
+            allPartPaths = hmsListing.paths;
+            if (!hmsListing.hasHmsPartitions || allPartPaths.isEmpty()) {
                 return Optional.empty();
             }
-            allPartPaths = hmsPartitionPaths(hudiHandle, allPartPaths);
             matchedPartPaths = prunePartitionPaths(allPartPaths, partKeyNames, partitionPredicates,
                     urlEncodePartitioning(hudiHandle, allPartPaths), hudiHandle.getTimestampPartitionKeys());
         } else {
             // non-hive-sync (Hudi default), or any pinned read: list the RELATIVE storage paths from Hudi
             // metadata -- the SAME source the unpruned scan (resolvePartitions -> listAllPartitionPaths) uses --
-            // under the plugin auth + TCCL pin. Net-neutral: resolvePartitions short-circuits once prunedPaths is
-            // set, so a filtered query lists exactly once (here) instead of there. parsePartitionValues handles
-            // the positional layout ("2024/01") and the hive-style one a hive-sync table has.
-            Listing listing = metaClientExecutor.execute(() -> {
-                HoodieTableMetaClient metaClient =
-                        HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
-                return new Listing(HudiScanPlanProvider.listAllPartitionPaths(metaClient), 0, null,
-                        HudiScanPlanProvider.urlEncodePartitioning(metaClient));
-            });
+            // under the plugin auth + TCCL pin. Shared across listPartitions, applyFilter, and resolvePartitions
+            // via HudiStatementScope so a statement lists the metadata table at most once.
+            Listing listing = HudiStatementScope.sharedMetadataPartitions(
+                    session, hudiHandle, () -> loadMetadataListing(hudiHandle, null));
             allPartPaths = listing.rawPaths;
             if (allPartPaths == null || allPartPaths.isEmpty()) {
                 return Optional.empty();
@@ -721,14 +716,14 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
         // Query-pruning / MTMV enumeration: read the cache (bypassCache=false).
-        return collectPartitions((HudiTableHandle) handle, false);
+        return collectPartitions(session, (HudiTableHandle) handle, false);
     }
 
     @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
         // SHOW PARTITIONS / partitions() TVF: list FRESH (bypassCache=true) so a newly hive-synced partition is
         // visible immediately, not up to a TTL later.
-        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle, true);
+        List<ConnectorPartitionInfo> partitions = collectPartitions(null, (HudiTableHandle) handle, true);
         List<String> names = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
             names.add(partition.getPartitionName());
@@ -767,7 +762,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * <p>How the pin is applied - by restricting the listing rather than replacing it - is on
      * {@link #restrictToPin}.
      */
-    private List<ConnectorPartitionInfo> collectPartitions(HudiTableHandle handle, boolean bypassCache) {
+    private List<ConnectorPartitionInfo> collectPartitions(
+            ConnectorSession session, HudiTableHandle handle, boolean bypassCache) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             return Collections.emptyList();
@@ -781,37 +777,18 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             // bypassCache selects the freshness contract (mirrors HiveConnectorMetadata.collectPartitionNames):
             // the SHOW PARTITIONS path (listPartitionNames) lists FRESH — legacy read the raw pooled client, so
             // an externally hive-synced partition must not stay invisible until TTL/REFRESH — while the
-            // query-pruning / MTMV path (listPartitions) reads the cache. Note the partition_values() table
-            // function goes through listPartitions, so it reads the cache too and can trail it by one TTL.
-            List<String> hmsNames = bypassCache
-                    ? hmsClient.listPartitionNamesFresh(handle.getDbName(), handle.getTableName(), -1)
-                    : hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
-            if (hmsNames != null && !hmsNames.isEmpty()) {
+            // query-pruning / MTMV path (listPartitions) reads the cache and memoizes within the statement.
+            HmsPartitionListing hmsListing = bypassCache
+                    ? loadHmsPartitionListing(handle, true)
+                    : HudiStatementScope.sharedHmsPartitions(
+                            session, handle, () -> loadHmsPartitionListing(handle, false));
+            if (hmsListing.hasHmsPartitions) {
                 // Never narrowed to the pin, whether or not the handle carries one - which is the same
                 // answer {@link #listsPartitionsAtSnapshot} gives for a hive-sync table, and it has to be
                 // the same answer: a listing narrowed here would be pruned against, while that method says
-                // this listing knows nothing about snapshots. The two used to be written separately, and
-                // the narrowing one was unreachable for pruning - carrying, unexercised, the double-escape
-                // hazard restrictToPin's own javadoc warns about, since HMS partition values are escaped
-                // differently from the ones in a metadata path.
-                //
-                // What the pin costs instead is coarseness: a partition dropped after the pin is gone from
-                // HMS and cannot be listed, so restricting to what HMS holds now could only ever be a
-                // SUBSET of the pinned set. Reporting a superset (everything HMS knows) and letting the
-                // scan filter is the direction that cannot lose rows.
-                //
-                // Unconditionally the latest instant, with no branch on queryInstant, because this
-                // listing is snapshot-blind BY CONSTRUCTION and there is nowhere for a pin to arrive
-                // from. The one caller that passes a snapshot-applied handle gates on
-                // listsPartitionsAtSnapshot(), which for a hive-sync table is !useHiveSyncPartition()
-                // = false; every other caller passes the base handle, which carries no query instant.
-                // The pinned branch that used to be here was therefore dead, and it cost a whole
-                // HoodieTableMetaClient built just to read a timeline zone - plus a fallback that
-                // would have published epoch 0 as a partition's last-modified time for any
-                // non-numeric pin, the day it became reachable.
-                List<String> paths = hmsPartitionPaths(handle, hmsNames);
+                // this listing knows nothing about snapshots.
                 PartitionState state = latestPartitionState(handle);
-                return buildPartitionInfos(paths, partKeyNames, state.lastModifiedMillis, state.urlEncoded,
+                return buildPartitionInfos(hmsListing.paths, partKeyNames, state.lastModifiedMillis, state.urlEncoded,
                         handle.getTimestampPartitionKeys());
             }
             LOG.warn("hive-sync hudi table {}.{} has no HMS partitions; "
@@ -821,12 +798,29 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
 
         // Non-hive-sync (or hive-sync HMS-empty fallback): the instant, the partition paths and - when the
         // handle carries a pin - the partitions holding data at it all come from ONE metaClient built under the
-        // plugin auth + TCCL pin. One visit rather than two: the pin used to build a second metaClient and run
-        // a second full listAllPartitionPaths over the same table, and the metaClient cannot simply be handed
-        // back out of the executor because using it outside the pin is what the executor exists to prevent.
-        // Byte-consistent with the scan's unpruned partition source (resolvePartitions ->
-        // listAllPartitionPaths), which is the R2 prune-to-zero guard.
-        Listing listing = metaClientExecutor.execute(() -> {
+        // plugin auth + TCCL pin. Unpinned statement-scoped reads share that single listing across listPartitions,
+        // applyFilter, and HudiScanPlanProvider.resolvePartitions.
+        Listing listing;
+        if (bypassCache) {
+            listing = loadMetadataListing(handle, queryInstant);
+        } else if (queryInstant == null) {
+            listing = HudiStatementScope.sharedMetadataPartitions(
+                    session, handle, () -> loadMetadataListing(handle, null));
+        } else {
+            listing = loadMetadataListing(handle, queryInstant);
+            HudiStatementScope.rememberMetadataPartitions(
+                    session, handle, unpinnedListing(listing.lastModifiedMillis, listing.rawPaths, listing.urlEncoded));
+        }
+        List<ConnectorPartitionInfo> partitions =
+                buildPartitionInfos(listing.rawPaths, partKeyNames, listing.lastModifiedMillis, listing.urlEncoded,
+                        handle.getTimestampPartitionKeys());
+        return listing.pinned == null
+                ? partitions
+                : restrictToPin(handle, partKeyNames, partitions, listing.pinned, queryInstant, listing.urlEncoded);
+    }
+
+    Listing loadMetadataListing(HudiTableHandle handle, String queryInstant) {
+        return metaClientExecutor.execute(() -> {
             HoodieTableMetaClient metaClient =
                     HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath());
             List<String> rawPaths = HudiScanPlanProvider.listAllPartitionPaths(metaClient);
@@ -841,12 +835,32 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             return new Listing(rawPaths, lastModifiedMillis, pinned,
                     HudiScanPlanProvider.urlEncodePartitioning(metaClient));
         });
-        List<ConnectorPartitionInfo> partitions =
-                buildPartitionInfos(listing.rawPaths, partKeyNames, listing.lastModifiedMillis, listing.urlEncoded,
-                        handle.getTimestampPartitionKeys());
-        return listing.pinned == null
-                ? partitions
-                : restrictToPin(handle, partKeyNames, partitions, listing.pinned, queryInstant, listing.urlEncoded);
+    }
+
+    HmsPartitionListing loadHmsPartitionListing(HudiTableHandle handle, boolean bypassCache) {
+        return loadHmsPartitionListing(hmsClient, handle, bypassCache);
+    }
+
+    static HmsPartitionListing loadHmsPartitionListing(HmsClient hmsClient, HudiTableHandle handle,
+            boolean bypassCache) {
+        List<String> hmsNames = bypassCache
+                ? hmsClient.listPartitionNamesFresh(handle.getDbName(), handle.getTableName(), -1)
+                : hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
+        if (hmsNames == null || hmsNames.isEmpty()) {
+            return new HmsPartitionListing(false, Collections.emptyList());
+        }
+        List<String> paths = hmsPartitionPaths(hmsClient, handle, hmsNames);
+        return new HmsPartitionListing(true, Collections.unmodifiableList(paths));
+    }
+
+    static final class HmsPartitionListing {
+        final boolean hasHmsPartitions;
+        final List<String> paths;
+
+        HmsPartitionListing(boolean hasHmsPartitions, List<String> paths) {
+            this.hasHmsPartitions = hasHmsPartitions;
+            this.paths = paths;
+        }
     }
 
     /**
@@ -864,6 +878,10 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             this.lastModifiedMillis = lastModifiedMillis;
             this.pinned = pinned;
             this.urlEncoded = urlEncoded;
+        }
+
+        List<String> rawPaths() {
+            return rawPaths;
         }
     }
 
@@ -945,7 +963,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         return atPin;
     }
 
-    private List<String> hmsPartitionPaths(HudiTableHandle handle, List<String> names) {
+    private static List<String> hmsPartitionPaths(HmsClient hmsClient, HudiTableHandle handle, List<String> names) {
         List<String> encodedNames = names.stream().filter(name -> name.indexOf('%') >= 0)
                 .collect(Collectors.toList());
         if (encodedNames.isEmpty()) {
@@ -974,7 +992,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 .map(name -> paths.getOrDefault(name, name)).collect(Collectors.toList());
     }
 
-    private static String relativePartitionPath(String basePath, String location) {
+    static String relativePartitionPath(String basePath, String location) {
         if (location == null || location.isEmpty()) {
             throw new DorisConnectorException("Hudi HMS partition has no storage location");
         }

@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
@@ -26,6 +28,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
@@ -67,7 +70,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -77,6 +82,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
@@ -124,13 +130,15 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     private final ConnectorContext context;
     // Every metaClient this provider builds is built inside this; see planScan.
     private final HudiMetaClientExecutor executor;
+    private final boolean useHiveSyncPartition;
+    private final Supplier<HmsClient> hmsClientSupplier;
 
     /**
      * A provider whose planning runs on the calling thread as it is: for tests of the pure helpers, and
      * for nothing that opens a filesystem.
      */
     HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context) {
-        this(properties, context, HudiMetaClientExecutor.inline());
+        this(properties, context, HudiMetaClientExecutor.inline(), false, null);
     }
 
     /**
@@ -144,9 +152,17 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      */
     HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context,
             HudiMetaClientExecutor executor) {
+        this(properties, context, executor, false, null);
+    }
+
+    HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context,
+            HudiMetaClientExecutor executor, boolean useHiveSyncPartition,
+            Supplier<HmsClient> hmsClientSupplier) {
         this.properties = properties;
         this.context = context;
         this.executor = executor;
+        this.useHiveSyncPartition = useHiveSyncPartition;
+        this.hmsClientSupplier = hmsClientSupplier;
     }
 
     /** What the planning runs inside; see the constructor. For tests. */
@@ -222,7 +238,10 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         Map<HudiScanReuseKey, List<ConnectorScanRange>> scanReuse =
                 session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
         HudiScanReuseKey reuseKey = hudiScanReuseKey(
-                (HudiTableHandle) request.getTableHandle(), statementTable.generation);
+                (HudiTableHandle) request.getTableHandle(),
+                statementTable.generation,
+                request.getRequiredPartitions(),
+                request.isPartitionsPrunedToEmpty());
         AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
         List<ConnectorScanRange> cached = scanReuse.computeIfAbsent(reuseKey, key -> {
             PlannedScan plannedScan = doPlanScanForReuse(session, request, statementTable);
@@ -289,6 +308,9 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     private List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request,
             HudiStatementTable statementTable, PlanCompleteness completeness) {
+        if (request.isPartitionsPrunedToEmpty()) {
+            return Collections.emptyList();
+        }
         HudiTableHandle hudiHandle = (HudiTableHandle) request.getTableHandle();
         String basePath = hudiHandle.getBasePath();
         HoodieTableMetaClient metaClient = statementTable.metaClient;
@@ -418,15 +440,16 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
         try (HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
                 engineCtx, metaClient, metadataConfig)) {
-            // Resolve partitions
-            List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
+            boolean urlEncoded = urlEncodePartitioning(metaClient);
+            // Resolve partitions (combining applyFilter EQ/IN paths with Nereids requiredPartitions)
+            ScanPartitions partitions = resolvePartitions(session, hudiHandle, request.getRequiredPartitions(),
+                    urlEncoded, request.getScanContext(), () -> HudiStatementScope.sharedMetadataPartitions(
+                            session, hudiHandle, () -> loadMetadataPartitions(metaClient, hudiHandle, urlEncoded))
+                            .rawPaths());
 
             List<ConnectorScanRange> ranges = new ArrayList<>();
-            boolean urlEncoded = urlEncodePartitioning(metaClient);
-            for (String partitionPath : partitionPaths) {
-                Map<String, String> partValues = parsePartitionValues(
-                        partitionPath, hudiHandle.getPartitionKeyNames(), urlEncoded,
-                        hudiHandle.getTimestampPartitionKeys());
+            for (String partitionPath : partitions.paths) {
+                Map<String, String> partValues = partitions.values(partitionPath, hudiHandle, urlEncoded);
 
                 if (useNativeCowPath) {
                     collectCowSplits(fsView, partitionPath, queryInstant,
@@ -440,7 +463,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
             LOG.info("Hudi scan planning: {}.{} type={} partitions={} splits={}",
                     hudiHandle.getDbName(), hudiHandle.getTableName(),
-                    hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
+                    hudiHandle.getHudiTableType(), partitions.paths.size(), ranges.size());
 
             return ranges;
         }
@@ -851,28 +874,139 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Resolve partition paths from handle or by listing all partitions.
+     * Resolve partition paths from handle or by listing all partitions, then intersect with Nereids'
+     * {@code requiredPartitions} so range / OR / NOT / expression partition pruning narrows Hudi splits too.
      */
-    private List<String> resolvePartitions(
-            HudiTableHandle handle, HoodieTableMetaClient metaClient) {
-        // Check if partitions were pruned via applyFilter
-        List<String> prunedPaths = handle.getPrunedPartitionPaths();
-        if (prunedPaths != null) {
-            return prunedPaths;
+    ScanPartitions resolvePartitions(ConnectorSession session, HudiTableHandle handle,
+            List<String> requiredPartitions, boolean urlEncoded, ConnectorScanContext scanContext,
+            Supplier<List<String>> physicalListing) {
+        List<String> keys = handle.getPartitionKeyNames();
+        if (keys == null || keys.isEmpty()) {
+            return new ScanPartitions(Collections.singletonList(""), Collections.emptyMap());
         }
-
-        // No pruning — list all partitions
-        List<String> partKeyNames = handle.getPartitionKeyNames();
-        if (partKeyNames == null || partKeyNames.isEmpty()) {
-            // Unpartitioned table
-            return Collections.singletonList("");
+        List<String> pruned = handle.getPrunedPartitionPaths();
+        if (pruned != null && pruned.isEmpty()) {
+            return new ScanPartitions(Collections.emptyList(), Collections.emptyMap());
         }
+        Set<String> required = requiredPartitions == null
+                ? Collections.emptySet() : new LinkedHashSet<>(requiredPartitions);
+        boolean hiveSync = useHiveSyncPartition && handle.getQueryInstant() == null;
+        if (!hiveSync) {
+            List<String> paths = pruned == null ? physicalListing.get() : pruned;
+            return selectPartitions(handle, paths, required, required.isEmpty(), urlEncoded, null);
+        }
+        // applyFilter stores paths from the HMS listing, which can be logical names. Only the
+        // Hudi listing below supplies directories to the filesystem view.
+        boolean keepAll = pruned == null && required.isEmpty();
+        List<String> logicalPaths = pruned;
+        if (keepAll) {
+            logicalPaths = HudiStatementScope.sharedHmsPartitions(session, handle,
+                    () -> HudiConnectorMetadata.loadHmsPartitionListing(hmsClientSupplier.get(), handle, false)).paths;
+        }
+        if (logicalPaths != null) {
+            Set<String> names = new LinkedHashSet<>();
+            for (String path : logicalPaths) {
+                String name = renderHiveStylePartitionName(keys, parsePartitionValues(
+                        path, keys, urlEncoded, handle.getTimestampPartitionKeys()));
+                if (required.isEmpty() || required.contains(name)) {
+                    names.add(name);
+                }
+            }
+            required = names;
+        }
+        if (pruned != null && required.stream().noneMatch(name -> name.indexOf('%') >= 0)) {
+            // applyFilter selected plain HMS names. Fetch only their locations; an equality on one
+            // partition should not enumerate the entire Hudi metadata table.
+            if (required.isEmpty()) {
+                return new ScanPartitions(Collections.emptyList(), Collections.emptyMap());
+            }
+            Map<String, Map<String, String>> values = resolveHmsPartitionValues(
+                    handle, new ArrayList<>(required), scanContext);
+            if (values.size() == required.size()) {
+                return new ScanPartitions(new ArrayList<>(values.keySet()), values);
+            }
+        }
+        return selectPartitions(handle, physicalListing.get(), required, keepAll, urlEncoded,
+                names -> resolveHmsPartitionValues(handle, names, scanContext));
+    }
 
+    private static HudiConnectorMetadata.Listing loadMetadataPartitions(HoodieTableMetaClient metaClient,
+            HudiTableHandle handle, boolean urlEncoded) {
         try {
-            return listAllPartitionPaths(metaClient);
+            List<String> paths = listAllPartitionPaths(metaClient);
+            long modified = instantToEpochMillis(latestCompletedInstant(metaClient), timelineZone(metaClient));
+            return HudiConnectorMetadata.unpinnedListing(modified, paths, urlEncoded);
         } catch (Exception e) {
-            throw new DorisConnectorException(
-                    "Failed to list partitions for " + handle.getBasePath(), e);
+            throw new DorisConnectorException("Failed to list partitions for " + handle.getBasePath(), e);
+        }
+    }
+
+    private Map<String, Map<String, String>> resolveHmsPartitionValues(HudiTableHandle handle,
+            List<String> unmatchedNames, ConnectorScanContext scanContext) {
+        HmsClient client = hmsClientSupplier.get();
+        List<HmsPartitionInfo> partitions = scanContext != null
+                ? client.getExistingPartitionsWithStats(
+                        handle.getDbName(), handle.getTableName(), unmatchedNames, scanContext).getPartitions()
+                : client.getExistingPartitions(handle.getDbName(), handle.getTableName(), unmatchedNames);
+        Map<String, Map<String, String>> byPath = new LinkedHashMap<>();
+        for (HmsPartitionInfo partition : partitions) {
+            Map<String, String> values = new LinkedHashMap<>();
+            List<String> keys = handle.getPartitionKeyNames();
+            for (int i = 0; i < keys.size(); i++) {
+                values.put(keys.get(i), partition.getValues().get(i));
+            }
+            byPath.put(HudiConnectorMetadata.relativePartitionPath(handle.getBasePath(), partition.getLocation()),
+                    values);
+        }
+        return byPath;
+    }
+
+    private static ScanPartitions selectPartitions(HudiTableHandle handle, List<String> paths,
+            Set<String> required, boolean keepAll, boolean urlEncoded,
+            Function<List<String>, Map<String, Map<String, String>>> resolveLocations) {
+        if (required.isEmpty() || paths.isEmpty()) {
+            return new ScanPartitions(keepAll ? paths : Collections.emptyList(), Collections.emptyMap());
+        }
+        List<String> keys = handle.getPartitionKeyNames();
+        Set<String> unmatched = resolveLocations == null ? Collections.emptySet() : new LinkedHashSet<>(required);
+        List<String> selected = keepAll ? paths : new ArrayList<>(Math.min(paths.size(), required.size()));
+        for (String path : paths) {
+            String name = renderHiveStylePartitionName(keys,
+                    parsePartitionValues(path, keys, urlEncoded, handle.getTimestampPartitionKeys()));
+            if (required.contains(name)) {
+                if (!keepAll) {
+                    selected.add(path);
+                }
+                if (resolveLocations != null) {
+                    unmatched.remove(name);
+                }
+            }
+        }
+        if (unmatched.isEmpty()) {
+            return new ScanPartitions(selected, Collections.emptyMap());
+        }
+        Map<String, Map<String, String>> values = resolveLocations.apply(new ArrayList<>(unmatched));
+        if (!keepAll && !values.isEmpty()) {
+            Set<String> matches = new HashSet<>(selected);
+            matches.addAll(values.keySet());
+            selected = paths.stream().filter(matches::contains).collect(Collectors.toList());
+        }
+        return new ScanPartitions(selected, values);
+    }
+
+    static final class ScanPartitions {
+        final List<String> paths;
+        private final Map<String, Map<String, String>> hmsValues;
+
+        ScanPartitions(List<String> paths, Map<String, Map<String, String>> hmsValues) {
+            this.paths = paths;
+            this.hmsValues = hmsValues;
+        }
+
+        Map<String, String> values(String path, HudiTableHandle handle, boolean urlEncoded) {
+            Map<String, String> values = hmsValues.get(path);
+            return values != null ? values : parsePartitionValues(path, handle.getPartitionKeyNames(),
+                    urlEncoded, handle.getTimestampPartitionKeys());
         }
     }
 
@@ -1342,7 +1476,12 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     /** Package-private for offline unit tests of key construction. */
     static HudiScanReuseKey hudiScanReuseKey(HudiTableHandle handle, String generation) {
-        return new HudiScanReuseKey(handle, generation);
+        return hudiScanReuseKey(handle, generation, Collections.emptyList(), false);
+    }
+
+    static HudiScanReuseKey hudiScanReuseKey(HudiTableHandle handle, String generation,
+            List<String> requiredPartitions, boolean partitionsPrunedToEmpty) {
+        return new HudiScanReuseKey(handle, generation, requiredPartitions, partitionsPrunedToEmpty);
     }
 
     /** One statement-stable Hudi meta client paired with the generation read from that client. */
@@ -1412,15 +1551,19 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         private final String endInstant;
         private final Map<String, String> incrementalParams;
         private final List<String> prunedPartitionPaths;
+        private final List<String> requiredPartitions;
+        private final boolean partitionsPrunedToEmpty;
         private final List<String> partitionKeyNames;
         private final String inputFormat;
         private final String serdeLib;
         private final String generation;
 
-        // Hudi scan-planning identity is fully captured by the handle, its query/incremental
-        // parameters, and the resolved table generation; request-level filter, columns, and
-        // countPushdown do not affect split planning and are deliberately excluded from the key.
-        private HudiScanReuseKey(HudiTableHandle handle, String generation) {
+        // Hudi scan-planning identity is captured by the handle, its query/incremental parameters,
+        // the request-level partition selection (requiredPartitions + partitionsPrunedToEmpty), and
+        // the resolved table generation; request-level filter, columns, and countPushdown do not
+        // affect split planning and are deliberately excluded from the key.
+        private HudiScanReuseKey(HudiTableHandle handle, String generation,
+                List<String> requiredPartitions, boolean partitionsPrunedToEmpty) {
             // Catalog and query isolation are provided by the statement-scope memo key.
             this.dbName = handle.getDbName();
             this.tableName = handle.getTableName();
@@ -1434,6 +1577,10 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             this.prunedPartitionPaths = handle.getPrunedPartitionPaths() == null
                     ? null
                     : Collections.unmodifiableList(new ArrayList<>(handle.getPrunedPartitionPaths()));
+            this.requiredPartitions = requiredPartitions == null || requiredPartitions.isEmpty()
+                    ? Collections.emptyList()
+                    : Collections.unmodifiableList(new ArrayList<>(requiredPartitions));
+            this.partitionsPrunedToEmpty = partitionsPrunedToEmpty;
             this.partitionKeyNames = handle.getPartitionKeyNames() == null
                     ? Collections.emptyList()
                     : Collections.unmodifiableList(new ArrayList<>(handle.getPartitionKeyNames()));
@@ -1451,7 +1598,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 return false;
             }
             HudiScanReuseKey that = (HudiScanReuseKey) object;
-            return Objects.equals(dbName, that.dbName)
+            return partitionsPrunedToEmpty == that.partitionsPrunedToEmpty
+                    && Objects.equals(dbName, that.dbName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(basePath, that.basePath)
                     && Objects.equals(queryInstant, that.queryInstant)
@@ -1459,6 +1607,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     && Objects.equals(endInstant, that.endInstant)
                     && Objects.equals(incrementalParams, that.incrementalParams)
                     && Objects.equals(prunedPartitionPaths, that.prunedPartitionPaths)
+                    && Objects.equals(requiredPartitions, that.requiredPartitions)
                     && Objects.equals(partitionKeyNames, that.partitionKeyNames)
                     && Objects.equals(inputFormat, that.inputFormat)
                     && Objects.equals(serdeLib, that.serdeLib)
@@ -1469,7 +1618,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         public int hashCode() {
             return Objects.hash(dbName, tableName, basePath,
                     queryInstant, beginInstant, endInstant, incrementalParams,
-                    prunedPartitionPaths, partitionKeyNames, inputFormat, serdeLib, generation);
+                    prunedPartitionPaths, requiredPartitions, partitionsPrunedToEmpty,
+                    partitionKeyNames, inputFormat, serdeLib, generation);
         }
 
         @Override

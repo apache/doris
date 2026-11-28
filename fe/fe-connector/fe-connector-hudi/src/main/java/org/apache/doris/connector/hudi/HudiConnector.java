@@ -272,7 +272,8 @@ public class HudiConnector implements Connector {
      */
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new HudiScanPlanProvider(properties, context, metaClientExecutor(false));
+        return new HudiScanPlanProvider(properties, context, metaClientExecutor(false),
+                props.isUseHiveSyncPartition(), this::getOrCreateClient);
     }
 
     /**

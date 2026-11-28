@@ -21,6 +21,7 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
@@ -32,6 +33,8 @@ import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -45,6 +48,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
@@ -397,6 +401,148 @@ public class HudiPartitionPruningTest {
                 metadata.applyFilter(null, handle, new ConnectorFilterConstraint(withCall)).isPresent());
         Assertions.assertEquals(Collections.singletonList("x"),
                 prunedPaths(metadata.applyFilter(null, handle, new ConnectorFilterConstraint(withNull))));
+    }
+
+    @Test
+    public void filterPartitionPathsByRequiredPartitionsCoversAllLayoutsAndEncodings() {
+        // 1. Pure range filter on positional Hudi layout ("2023/12", "2024/01", "2024/02")
+        List<String> positional = Arrays.asList("2023/12", "2024/01", "2024/02");
+        Assertions.assertEquals(
+                Collections.singletonList("2024/02"),
+                filterPartitionPathsByRequiredPartitions(
+                        positional, PART_KEYS, Collections.singletonList("year=2024/month=02"),
+                        true, Collections.emptySet()));
+
+        // 2. Mixed applyFilter EQ subset + Nereids range subset (year = '2024' AND month > '01')
+        List<String> eqPruned = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+        Assertions.assertEquals(
+                Collections.singletonList("year=2024/month=02"),
+                filterPartitionPathsByRequiredPartitions(
+                        eqPruned, PART_KEYS, Collections.singletonList("year=2024/month=02"),
+                        true, Collections.emptySet()));
+
+        // 3. Empty/null requiredPartitions means unpruned by Nereids -> keep all candidate paths
+        Assertions.assertEquals(positional, filterPartitionPathsByRequiredPartitions(
+                positional, PART_KEYS, Collections.emptyList(), true, Collections.emptySet()));
+        Assertions.assertEquals(positional, filterPartitionPathsByRequiredPartitions(
+                positional, PART_KEYS, null, true, Collections.emptySet()));
+
+        // 4. Single-column slash-valued partition ("2024/01/02" -> "dt=2024%2F01%2F02")
+        Assertions.assertEquals(
+                Collections.singletonList("2024/01/02"),
+                filterPartitionPathsByRequiredPartitions(
+                        Arrays.asList("2024/01/02", "2024/03/04"),
+                        Collections.singletonList("dt"),
+                        Collections.singletonList("dt=2024%2F01%2F02"),
+                        true, Collections.emptySet()));
+
+        // 5. Spark SQL escaped timestamp key + non-URL-encoded literal "%3A" string key
+        List<String> tsPaths = Arrays.asList(
+                "event_time=2024-01-01 10%3A00%3A00/label=%3A",
+                "event_time=2024-01-02 11%3A00%3A00/label=%3A");
+        Set<String> tsKeys = Collections.singleton("event_time");
+        List<ConnectorPartitionInfoRef> expectedName = Collections.singletonList(
+                new ConnectorPartitionInfoRef("event_time=2024-01-02 11%3A00%3A00/label=%253A"));
+        Assertions.assertEquals(
+                Collections.singletonList(tsPaths.get(1)),
+                filterPartitionPathsByRequiredPartitions(
+                        tsPaths, Arrays.asList("event_time", "label"),
+                        Collections.singletonList(expectedName.get(0).name),
+                        false, tsKeys));
+
+        // 6. SQL NULL partition values in both __HIVE_DEFAULT_PARTITION__ and \N spellings
+        List<String> nullPaths = Arrays.asList("dt=__HIVE_DEFAULT_PARTITION__", "dt=\\N", "dt=2024-01-01");
+        Assertions.assertEquals(
+                Arrays.asList("dt=__HIVE_DEFAULT_PARTITION__", "dt=\\N"),
+                filterPartitionPathsByRequiredPartitions(
+                        nullPaths, Collections.singletonList("dt"),
+                        Arrays.asList("dt=__HIVE_DEFAULT_PARTITION__", "dt=%5CN"),
+                        true, Collections.emptySet()));
+    }
+
+    @Test
+    public void filterPartitionPathsResolvesHiveSyncSlashEncodedPartitionsViaHmsLocations() {
+        // SlashEncodedDayPartitionValueExtractor registers physical "2024/01/02" in HMS as "dt=2024-01-02"
+        // (no '%', so listPartitions emits "dt=2024-01-02" without calling HMS getPartitions).
+        List<String> hmsNames = Arrays.asList("dt=2024-01-02", "dt=2024-01-03");
+        FakeHmsClient hms = new FakeHmsClient(hmsNames);
+        hms.locations = Map.of(
+                "dt=2024-01-02", "s3a://b/t/2024/01/02",
+                "dt=2024-01-03", "s3a://b/t/2024/01/03");
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList("dt"))
+                .build();
+        HudiConnectorMetadata metadata = metadata(
+                hms,
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                new HudiMetaClientExecutor() {
+                    @SuppressWarnings("unchecked")
+                    @Override
+                    public <T> T execute(Callable<T> action) {
+                        return (T) new HudiConnectorMetadata.PartitionState(7L, true);
+                    }
+                });
+        List<ConnectorPartitionInfo> listed = metadata.listPartitions(null, handle, Optional.empty());
+        Assertions.assertEquals(hmsNames, listed.stream()
+                .map(ConnectorPartitionInfo::getPartitionName)
+                .collect(Collectors.toList()));
+        Assertions.assertNull(hms.loadedNames, "plain HMS listing must not call getPartitions");
+
+        // Both Nereids-only range pruning and an already narrowed equality must produce the same
+        // file directory and SQL column value. Equality can fetch the single selected location directly.
+        HudiScanPlanProvider provider = new HudiScanPlanProvider(
+                Collections.emptyMap(), null, null, true, () -> hms);
+        List<String> physicalPaths = Arrays.asList("2024/01/02", "2024/01/03");
+
+        HudiTableHandle narrowed = (HudiTableHandle) metadata.applyFilter(null, handle,
+                new ConnectorFilterConstraint(eq("dt", "2024-01-03"))).orElseThrow().getHandle();
+        List<String> selected = List.of("dt=2024-01-03");
+        for (HudiTableHandle scan : Arrays.asList(handle, narrowed)) {
+            HudiScanPlanProvider.ScanPartitions result = provider.resolvePartitions(null, scan, selected, true,
+                    new ConnectorScanContext(), () -> {
+                        Assertions.assertSame(handle, scan, "equality should not list every physical partition");
+                        return physicalPaths;
+                    });
+            Assertions.assertEquals(List.of("2024/01/03"), result.paths);
+            Assertions.assertEquals(Map.of("dt", "2024-01-03"), result.values(result.paths.get(0), scan, true));
+            Assertions.assertEquals(selected, hms.loadedNames);
+        }
+        HudiScanPlanProvider.ScanPartitions all = provider.resolvePartitions(null, handle, Collections.emptyList(),
+                true, null, () -> physicalPaths);
+        Assertions.assertEquals(physicalPaths, all.paths);
+        Assertions.assertEquals(Map.of("dt", "2024-01-03"), all.values("2024/01/03", handle, true));
+
+        hms.loadedNames = null;
+        Assertions.assertEquals(List.of("2024/02"), provider.resolvePartitions(null, partitionedHandle(),
+                List.of("year=2024/month=02"), true, null, () -> List.of("2024/01", "2024/02")).paths);
+        Assertions.assertNull(hms.loadedNames);
+    }
+
+    private static List<String> filterPartitionPathsByRequiredPartitions(List<String> paths,
+            List<String> keys, List<String> required, boolean urlEncoded, Set<String> timestamps) {
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(keys).timestampPartitionKeys(timestamps).build();
+        return new HudiScanPlanProvider(Collections.emptyMap(), null)
+                .resolvePartitions(null, handle, required, urlEncoded, null, () -> paths).paths;
+    }
+
+    @Test
+    public void doPlanScanShortCircuitsWhenPartitionsPrunedToEmpty() {
+        HudiScanPlanProvider provider = new HudiScanPlanProvider(Collections.emptyMap(), null);
+        ConnectorScanRequest request = ConnectorScanRequest.builder(partitionedHandle(), Collections.emptyList())
+                .partitionsPrunedToEmpty(true)
+                .build();
+        // metaClient is null: a failure to short-circuit would immediately NPE on metaClient.getTableType().
+        Assertions.assertTrue(provider.doPlanScan(
+                null, request, new HudiScanPlanProvider.HudiStatementTable(null, "gen", null)).isEmpty());
+    }
+
+    private static final class ConnectorPartitionInfoRef {
+        private final String name;
+
+        private ConnectorPartitionInfoRef(String name) {
+            this.name = name;
+        }
     }
 
     // ========== helpers ==========
