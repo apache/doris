@@ -26,7 +26,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -175,28 +174,9 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
 
     @Override
     public String getTableComment(String remoteDbName, String remoteTableName) {
-        String sql = "SELECT TABLE_COMMENT FROM INFORMATION_SCHEMA.TABLES"
-                + " WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?";
-        Connection conn = null;
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            conn = getConnection();
-            ps = conn.prepareStatement(sql);
-            ps.setString(1, remoteDbName);
-            ps.setString(2, remoteTableName);
-            rs = ps.executeQuery();
-            if (rs.next()) {
-                String comment = rs.getString("TABLE_COMMENT");
-                return comment != null ? comment : "";
-            }
-            return "";
-        } catch (SQLException e) {
-            throw jdbcException(
-                    "Failed to get table comment for " + remoteDbName + "." + remoteTableName, e);
-        } finally {
-            closeResources(rs, ps, conn);
-        }
+        return queryTableComment("SELECT TABLE_COMMENT FROM INFORMATION_SCHEMA.TABLES"
+                + " WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+                remoteDbName, remoteTableName, remoteDbName, remoteTableName);
     }
 
     @Override
