@@ -25,6 +25,9 @@ suite("test_iceberg_dlf_catalog", "p2,external") {
     String uid = context.config.otherConfigs.get("dlf_uid")
     String region = context.config.otherConfigs.get("dlf_region")
     String catalog_id = context.config.otherConfigs.get("dlf_catalog_id")
+    String warehouse = context.config.otherConfigs.get("dlfWarehouse")
+    assertTrue(warehouse != null && !warehouse.trim().isEmpty(),
+            "Configure dlfWarehouse before enabling Legacy DLF suites")
     String access_key = context.config.otherConfigs.get("dlf_access_key")
     String secret_key = context.config.otherConfigs.get("dlf_secret_key")
 
@@ -34,7 +37,7 @@ suite("test_iceberg_dlf_catalog", "p2,external") {
         create catalog if not exists ${catalog} properties (
         "type" = "iceberg",
         "iceberg.catalog.type" = "dlf",
-        "warehouse" = "oss://selectdb-qa-datalake-test/p2_regression_case",
+        "warehouse" = "${warehouse}",
         "dlf.proxy.mode" = "DLF_ONLY",
         "dlf.uid" = "${uid}",
         "dlf.region" = "${region}",

@@ -88,10 +88,13 @@ suite("test_max_compute_timestamp", "p2,external") {
 
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String endpoint = context.config.otherConfigs.get("mcEndpoint")
+        assertTrue(endpoint != null && !endpoint.trim().isEmpty(),
+                "Configure mcEndpoint before enabling MaxCompute suites")
         sql """ set time_zone = 'Asia/Shanghai' """
         String ak = context.config.otherConfigs.get("ak")
         String sk = context.config.otherConfigs.get("sk");
-        String mc_db = "mc_datalake"
+        String mc_db = context.config.otherConfigs.get("mcDefaultProject") ?: "mc_datalake"
         String mc_catalog_name = "test_max_compute_timestamp"
 
         sql """drop catalog if exists ${mc_catalog_name};"""
@@ -101,7 +104,7 @@ suite("test_max_compute_timestamp", "p2,external") {
                 "mc.default.project" = "${mc_db}",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
+                "mc.endpoint" = "${endpoint}",
                 "mc.datetime_predicate_push_down" = "false"
             );
         """
@@ -178,7 +181,7 @@ suite("test_max_compute_timestamp", "p2,external") {
                 "mc.default.project" = "${mc_db}",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
+                "mc.endpoint" = "${endpoint}",
                 "mc.datetime_predicate_push_down" = "true"
             );
         """

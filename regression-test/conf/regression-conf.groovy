@@ -145,6 +145,8 @@ oceanbase_cdc_port=2883
 // See `docker/thirdparties/run-thirdparties-docker.sh`
 enableHiveTest=false
 enablePaimonTest=false
+// Required when Legacy DLF suites are enabled.
+dlfWarehouse=""
 
 // port of hive2 docker
 hive2HmsPort=9083
@@ -207,6 +209,10 @@ hadoopSecurityAutoToLocal = ""
 //paimon catalog test config for bigdata
 enableExternalPaimonTest = false
 
+// EMR fixtures: set the warehouse in a private config before enabling the suites.
+enableExternalEmrTest = false
+emrPaimonWarehouse = ""
+
 //mysql jdbc connector test config for bigdata
 enableExternalMysqlTest = false
 extMysqlHost = "***.**.**.**"
@@ -231,11 +237,10 @@ extMinioSk = "minioadmin"
 extMinioRegion = "us-east-1"
 extMinioBucket = "test-bucket"
 
-enableExternalHudiTest = false
-hudiEmrCatalog = "***********"
-
 enableObjStorageTest=false
 enableMaxComputeTest=false
+// Required when MaxCompute suites are enabled; use an endpoint reachable from Doris.
+mcEndpoint=""
 aliYunAk="***********"
 dlfUid="***********"
 aliYunSk="***********"
@@ -319,9 +324,6 @@ enableExternalIcebergTest = false
 // The properties string of iceberg catalog
 icebergS3TablesCatalog = ""
 
-enableExternalHudiTest = false
-// The properties string of hudi catalog
-hudiEmrCatalog = ""
 icebergS3TablesCatalog=""
 icebergS3TablesCatalogGlueRest=""
 

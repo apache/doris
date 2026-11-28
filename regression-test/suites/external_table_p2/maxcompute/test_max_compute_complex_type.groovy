@@ -160,24 +160,28 @@
 suite("test_max_compute_complex_type", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String endpoint = context.config.otherConfigs.get("mcEndpoint")
+        assertTrue(endpoint != null && !endpoint.trim().isEmpty(),
+                "Configure mcEndpoint before enabling MaxCompute suites")
         String ak = context.config.otherConfigs.get("ak")
         String sk = context.config.otherConfigs.get("sk")
+        String defaultProject = context.config.otherConfigs.get("mcDefaultProject") ?: "mc_datalake"
         String mc_catalog_name = "test_max_compute_complex_type"
         sql """drop catalog if exists ${mc_catalog_name} """
         sql """
         CREATE CATALOG IF NOT EXISTS ${mc_catalog_name} PROPERTIES (
                 "type" = "max_compute",
-                "mc.default.project" = "mc_datalake",
+                "mc.default.project" = "${defaultProject}",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+                "mc.endpoint" = "${endpoint}"
         );
         """
 
         logger.info("catalog " + mc_catalog_name + " created")
         sql """switch ${mc_catalog_name};"""
         logger.info("switched to catalog " + mc_catalog_name)
-        sql """ use mc_datalake """
+        sql """ use `${defaultProject}` """
 
         order_qt_mc_q1 """ select id,arr3,arr1,arr5,arr2,arr4 from array_table order by id desc """
         order_qt_mc_q2 """ select arr2,arr1 from map_table order by id  """

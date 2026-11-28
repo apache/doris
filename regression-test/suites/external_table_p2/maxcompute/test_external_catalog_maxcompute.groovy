@@ -329,9 +329,13 @@
 suite("test_external_catalog_maxcompute", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String endpoint = context.config.otherConfigs.get("mcEndpoint")
+        assertTrue(endpoint != null && !endpoint.trim().isEmpty(),
+                "Configure mcEndpoint before enabling MaxCompute suites")
         String ak = context.config.otherConfigs.get("ak")
         String sk = context.config.otherConfigs.get("sk");
-        String mc_db = "mc_datalake"
+        String crossProject = context.config.otherConfigs.get("mcCrossProject") ?: "other_mc_datalake_test"
+        String mc_db = context.config.otherConfigs.get("mcDefaultProject") ?: "mc_datalake"
         String mc_catalog_name = "test_external_mc_catalog"
 
         sql """drop catalog if exists ${mc_catalog_name};"""
@@ -341,7 +345,7 @@ suite("test_external_catalog_maxcompute", "p2,external") {
                 "mc.default.project" = "${mc_db}",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
+                "mc.endpoint" = "${endpoint}",
                 "test_connection" = "true"
             );
         """
@@ -380,7 +384,7 @@ suite("test_external_catalog_maxcompute", "p2,external") {
                 "mc.default.project" = "${mc_db}",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
+                "mc.endpoint" = "${endpoint}",
                 "test_connection" = "true"
             );
         """
@@ -411,19 +415,20 @@ suite("test_external_catalog_maxcompute", "p2,external") {
 
 
 
+        sql """drop catalog if exists ${mc_catalog_name}_2;"""
         sql """
             create catalog if not exists ${mc_catalog_name}_2 properties (
                 "type" = "max_compute",
-                "mc.default.project" = "other_mc_datalake_test",
+                "mc.default.project" = "${crossProject}",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+                "mc.endpoint" = "${endpoint}"
             );
         """
         sql """ switch `${mc_catalog_name}_2` """
 
         //other db 
-        sql """ use other_mc_datalake_test """
+        sql """ use `${crossProject}` """
         order_qt_other_db_show  """ show tables ; """
         order_qt_other_db_select """ select * from other_db_mc_tb """
         order_qt_other_db_select_partiton """ select * from  other_db_mc_parts  """

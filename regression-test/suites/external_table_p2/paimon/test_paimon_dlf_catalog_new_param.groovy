@@ -21,6 +21,10 @@ suite("test_paimon_dlf_catalog_new_param", "p2,external") {
         return
     }
 
+    String warehouse = context.config.otherConfigs.get("dlfWarehouse")
+    assertTrue(warehouse != null && !warehouse.trim().isEmpty(),
+            "Configure dlfWarehouse before enabling Legacy DLF suites")
+
     try {
         String catalog = "test_paimon_dlf_catalog_new_param"
         String uid = context.config.otherConfigs.get("dlf_uid")
@@ -37,7 +41,7 @@ suite("test_paimon_dlf_catalog_new_param", "p2,external") {
             create catalog if not exists ${catalog} properties (
             "type" = "paimon",
             "paimon.catalog.type" = "dlf",
-            "warehouse" = "oss://selectdb-qa-datalake-test/p2_regression_case",
+            "warehouse" = "${warehouse}",
             "dlf.proxy.mode" = "DLF_ONLY",
             "dlf.uid" = "${uid}",
             "dlf.region" = "${region}",

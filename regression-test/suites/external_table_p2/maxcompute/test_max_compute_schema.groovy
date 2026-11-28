@@ -90,9 +90,12 @@ INSERT INTO employee_salary VALUES
 suite("test_max_compute_schema", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String endpoint = context.config.otherConfigs.get("mcEndpoint")
+        assertTrue(endpoint != null && !endpoint.trim().isEmpty(),
+                "Configure mcEndpoint before enabling MaxCompute suites")
         String ak = context.config.otherConfigs.get("ak")
         String sk = context.config.otherConfigs.get("sk");
-        String mc_project = "mc_datalake_schema"
+        String mc_project = context.config.otherConfigs.get("mcSchemaProject") ?: "mc_datalake_schema"
         String mc_catalog_name = "test_max_compute_schema"
 
 
@@ -105,7 +108,7 @@ suite("test_max_compute_schema", "p2,external") {
                 "mc.default.project" = "${mc_project}",
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
+                "mc.endpoint" = "${endpoint}",
                 "mc.enable.namespace.schema" = "true",
                 "test_connection" = "true"
             );
@@ -137,7 +140,9 @@ suite("test_max_compute_schema", "p2,external") {
 
         sql """ alter catalog ${mc_catalog_name} set  PROPERTIES("mc.enable.namespace.schema" = "false"); """
         qt_show_db_information_schema """ show databases like "information\\_schema";"""
-        qt_show_db_mc_project """ show databases like "${mc_project.replace("_", "\\_")}";"""
+        // Normalize only the configured project; unexpected names still fail the golden check.
+        quickRunTest("show_db_mc_project", """ show databases like "${mc_project.replace("_", "\\_")}";""",
+                false, { row -> [row[0] == mc_project ? "mc_datalake_schema" : "Unexpected project: ${row[0]}"] })
         qt_show_db_mysql """ show databases like "mysql";"""
         sql """ use ${mc_project}; """
         order_qt_show_tb_order_detail """ show tables like "order\\_detail"; """
