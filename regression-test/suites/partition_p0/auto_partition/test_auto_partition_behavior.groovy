@@ -193,21 +193,21 @@ suite("test_auto_partition_behavior") {
     qt_sql_non_order2 """ select * from non_order where k1 = '2023-12-12'; """
     qt_sql_non_order3 """ select * from non_order where k1 = '2013-12-12'; """
 
-    // range partition can't auto create null partition
-    sql "drop table if exists invalid_null_range"
-    test {
-        sql """
-            create table invalid_null_range(
-                k0 datetime(6) null
-            )
-            auto partition by range (date_trunc(k0, 'hour'))
-            (
-            )
-            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
-            properties("replication_num" = "1");
-        """
-        exception "AUTO RANGE PARTITION doesn't support NULL column"
-    }
+    // range partition on a nullable column: NULL goes to the partition that starts at 0000-01-01
+    sql "drop table if exists null_range"
+    sql """
+        create table null_range(
+            k0 datetime(6) null
+        )
+        auto partition by range (date_trunc(k0, 'hour'))
+        (
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+        properties("replication_num" = "1");
+    """
+    sql """ insert into null_range values (null), ('2023-12-12 10:00:00'); """
+    assertEquals(1, (sql "select count(*) from null_range partition(p00000101000000) where k0 is null")[0][0])
+    assertEquals(2, (sql "show partitions from null_range").size())
 
 
 

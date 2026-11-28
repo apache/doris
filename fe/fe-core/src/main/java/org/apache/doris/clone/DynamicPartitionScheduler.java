@@ -634,6 +634,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             isContaineds.put(idToItem.getKey(), false);
             Long checkDropPartitionId = idToItem.getKey();
             Range<PartitionKey> checkDropPartitionKey = idToItem.getValue().getItems();
+            if (holdsNullPartitionValues(olapTable, partitionColumn, checkDropPartitionKey)) {
+                isContaineds.put(checkDropPartitionId, true);
+                continue;
+            }
             for (Range<PartitionKey> reserveHistoryPartitionKeyRange : reservedHistoryPartitionKeyRangeList) {
                 if (RangeUtils.checkIsTwoRangesIntersect(reserveHistoryPartitionKeyRange, checkDropPartitionKey)) {
                     isContaineds.put(checkDropPartitionId, true);
@@ -650,6 +654,20 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
         }
         return dropPartitionOps;
+    }
+
+    /**
+     * Whether this range partition of an AUTO RANGE PARTITION table holds the rows whose partition column is NULL.
+     * NULL orders below every value, so those rows live in the partition whose lower bound is MIN_VALUE. That
+     * partition always has the oldest bounds, so history cleanup would drop it first and lose every NULL row with
+     * it. Users who want those rows gone can still drop the partition themselves.
+     */
+    static boolean holdsNullPartitionValues(OlapTable olapTable, Column partitionColumn,
+            Range<PartitionKey> range) {
+        return olapTable.getPartitionInfo().enableAutomaticPartition()
+                && partitionColumn.isAllowNull()
+                && range.hasLowerBound()
+                && range.lowerEndpoint().isMinValue();
     }
 
     /**
@@ -695,6 +713,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         for (Map.Entry<Long, PartitionItem> entry : idToItems) {
             RangePartitionItem partitionItem = (RangePartitionItem) entry.getValue();
             PartitionKey upperBound = partitionItem.getItems().upperEndpoint();
+            if (holdsNullPartitionValues(olapTable, partitionColumn, partitionItem.getItems())) {
+                // not a time period: never counted against or dropped by partition.retention_count
+                continue;
+            }
 
             // Only keep history partitions (upper bound < current time)
             if (upperBound.compareTo(currentTimeKey) < 0) {

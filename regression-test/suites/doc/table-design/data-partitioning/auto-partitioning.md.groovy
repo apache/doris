@@ -103,9 +103,8 @@ suite("docs/table-design/data-partitioning/auto-partitioning.md") {
     select * from auto_null_list partition(pX);
     """
 
-    try {
-        sql "drop table if exists `range_table_nullable`"
-        sql """
+    sql "drop table if exists `range_table_nullable`"
+    sql """
         CREATE TABLE `range_table_nullable` (
             `k1` INT,
             `k2` DATETIMEV2(3),
@@ -120,10 +119,9 @@ suite("docs/table-design/data-partitioning/auto-partitioning.md") {
         "replication_allocation" = "tag.location.default: 1"
         )
         """
-        Assertions.fail("The SQL above should throw an exception as follows:\n\t\terrCode = 2, detailMessage = AUTO RANGE PARTITION doesn't support NULL column")
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("errCode = 2, detailMessage = AUTO RANGE PARTITION doesn't support NULL column"))
-    }
+    // a nullable AUTO RANGE PARTITION column keeps NULL rows in the partition that starts at 0000-01-01
+    sql "insert into range_table_nullable values (1, null, null), (2, '2024-01-01 12:00:00', null)"
+    assertEquals(1, (sql "select count(*) from range_table_nullable partition(p00000101000000)")[0][0])
 
     sql "create database if not exists auto_partition_doc_test"
     sql "use auto_partition_doc_test"

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.thrift.TNullableStringLiteral;
 
 import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -148,9 +149,6 @@ public class PartitionExprUtil {
             ArrayList<String> curPartitionValues = new ArrayList<>();
             for (TNullableStringLiteral tStringLiteral : partitionValueList) {
                 if (tStringLiteral.is_null) {
-                    if (partitionType == PartitionType.RANGE) {
-                        throw new AnalysisException("Can't create partition for NULL Range");
-                    }
                     curPartitionValues.add(null);
                 } else {
                     curPartitionValues.add(tStringLiteral.value);
@@ -167,7 +165,9 @@ public class PartitionExprUtil {
             if (partitionType == PartitionType.RANGE) {
                 String beginTime = curPartitionValues.get(0); // have check range type size must be 1
                 Type partitionColumnType = partitionColumn.get(0).getType();
-                LiteralExpr beginDateTime = DateLiteralUtils.createLiteral(beginTime, partitionColumnType);
+                LiteralExpr beginDateTime = beginTime == null
+                        ? getNullRangeBegin(partitionColumnType)
+                        : DateLiteralUtils.createLiteral(beginTime, partitionColumnType);
                 LocalDateTime beginLocalDateTime = beginDateTime instanceof DateLiteral
                         ? ((DateLiteral) beginDateTime).getTimeFormatter()
                         : ((TimeStampNsLiteral) beginDateTime).toLocalDateTime();
@@ -246,6 +246,24 @@ public class PartitionExprUtil {
             result.put(partitionName, addPartitionClause);
         }
         return result;
+    }
+
+    /**
+     * The start of the range partition that holds NULL values of a nullable AUTO RANGE PARTITION column.
+     *
+     * <p>A range partition orders NULL below every value, so NULL belongs to the first range: the one that
+     * starts at the type's minimum (0000-01-01 for date types). A lower bound equal to MIN_VALUE reaches BE
+     * without a start key, which BE reads as "no lower bound", so the NULL rows route to that partition. It is
+     * the same partition a row holding the minimum value would create (for example p00000101000000), so the two
+     * never conflict. CREATE TABLE allows a nullable AUTO RANGE PARTITION column only for these date types.
+     */
+    private static LiteralExpr getNullRangeBegin(Type partitionColumnType) throws AnalysisException {
+        Preconditions.checkState(partitionColumnType.isDate() || partitionColumnType.isDateV2()
+                || partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2(),
+                "NULL value of AUTO RANGE PARTITION column type %s", partitionColumnType);
+        String minValue = (partitionColumnType.isDate() || partitionColumnType.isDateV2())
+                ? "0000-01-01" : "0000-01-01 00:00:00";
+        return DateLiteralUtils.createLiteral(minValue, partitionColumnType);
     }
 
     private static PartitionKeyDesc createPartitionKeyDescWithRange(LiteralExpr beginDateTime,

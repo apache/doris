@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -143,10 +144,12 @@ public class PartitionTableInfo {
             throw new AnalysisException(
                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
         }
-        if (partitionType.equalsIgnoreCase(PartitionType.RANGE.name()) && isAutoPartition) {
-            if (column.isNullable()) {
-                throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
-            }
+        // NULL rows of an AUTO RANGE PARTITION live in the partition starting at the type's minimum, which reaches
+        // BE without a start key. Only the date and datetime types keep that minimum through the partition key.
+        DataType type = column.getType();
+        if (isAutoPartition && partitionType.equalsIgnoreCase(PartitionType.RANGE.name()) && column.isNullable()
+                && !(type.isDateType() || type.isDateV2Type() || type.isDateTimeType() || type.isDateTimeV2Type())) {
+            throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column of type " + type.toSql());
         }
     }
 

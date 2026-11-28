@@ -16,29 +16,28 @@
 // under the License.
 
 suite("test_ctas_auto_partition") {
+    // a nullable auto range partition column is allowed; NULL goes to the partition that starts at 0000-01-01
+    sql "drop table if exists test_ctas_auto_range_nullable1"
+    sql """
+        create table `test_ctas_auto_range_nullable1`
+        AUTO PARTITION BY RANGE (date_trunc(`today`, 'day')) ()
+        PROPERTIES ("replication_num" = "1" )
+        as
+        select nullable(current_date()) as today;
+    """
+    assertEquals(1, (sql "select count(*) from test_ctas_auto_range_nullable1 where today = current_date()")[0][0])
+
+    sql "drop table if exists test_ctas_auto_range_nullable2"
+    sql """
+        create table `test_ctas_auto_range_nullable2`
+        AUTO PARTITION BY RANGE (date_trunc(`today`, 'day')) ()
+        PROPERTIES ("replication_num" = "1" )
+        as
+        select cast(null as date) as today;
+    """
+    assertEquals(1, (sql "select count(*) from test_ctas_auto_range_nullable2 partition(p00000101000000) where today is null")[0][0])
+
     sql "drop table if exists test_partition__dbt_tmp3"
-    test {
-        sql """
-            create table `test_partition__dbt_tmp3`
-            AUTO PARTITION BY RANGE (date_trunc(`today`, 'day')) ()
-            PROPERTIES ("replication_num" = "1" )
-            as
-            select nullable(current_date()) as today;
-        """
-        exception "AUTO RANGE PARTITION doesn't support NULL column"
-    }
-
-    test {
-        sql """
-            create table `test_partition__dbt_tmp3`
-            AUTO PARTITION BY RANGE (date_trunc(`today`, 'day')) ()
-            PROPERTIES ("replication_num" = "1" )
-            as
-            select cast(null as date) as today;
-        """
-        exception "AUTO RANGE PARTITION doesn't support NULL column"
-    }
-
     test {
         sql """
             create table `test_partition__dbt_tmp3`

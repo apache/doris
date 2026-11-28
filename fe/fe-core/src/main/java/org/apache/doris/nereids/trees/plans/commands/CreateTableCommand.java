@@ -231,7 +231,7 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                 }
             }
             if (autoRangePartitionName != null && autoRangePartitionName.equalsIgnoreCase(s.getName())) {
-                // for auto range partition column, it must be not nullable. so keep its origin.
+                // keep the auto range partition column's own nullability: a NOT NULL source column stays NOT NULL.
                 columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, s.nullable()));
             } else {
                 // if the column is an expression, we set it to nullable, otherwise according to the nullable of the
