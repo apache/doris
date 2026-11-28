@@ -307,7 +307,8 @@ Status OlapScanner::_prepare_impl() {
                     .version = _tablet_reader_params.version.second,
                     .use_segment_cache = !query_options.__isset.enable_segment_cache ||
                                          query_options.enable_segment_cache,
-                    .use_page_cache = _state->enable_page_cache()};
+                    .use_page_cache = _state->enable_page_cache(),
+                    .delete_predicates = &_tablet_reader_params.delete_predicates};
         }
         const MowHiddenRows* hidden_rows_ptr = hidden_rows ? &*hidden_rows : nullptr;
         if (_tablet_collection_statistics != nullptr) {
