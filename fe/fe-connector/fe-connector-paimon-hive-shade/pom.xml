@@ -51,6 +51,12 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- Replace DLF's embedded BC with signed modules. The bundled Nimbus/Netty callers also
+             use PKIX/PEM APIs, so a standalone provider alone would leave those paths unresolved. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+        </dependency>
         <!-- Paimon uses Hive 2.3.x, so bundle the matching DLF client into this same private shade.
              Its thrift references are relocated together with Paimon's Hive client below. -->
         <dependency>
@@ -315,6 +321,8 @@ under the License.
                                  hive-catalog-shade. -->
                             <artifactSet>
                                 <excludes>
+                                    <!-- A provider must not be merged with DLF's old unsigned classes. -->
+                                    <exclude>org.bouncycastle:*</exclude>
                                     <exclude>org.apache.hadoop:*</exclude>
                                     <exclude>org.apache.paimon:paimon-core</exclude>
                                     <exclude>org.apache.paimon:paimon-common</exclude>
@@ -349,6 +357,8 @@ under the License.
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
                                         <exclude>META-INF/maven/**</exclude>
+                                        <!-- dependencyManagement cannot replace BC classes embedded in DLF. -->
+                                        <exclude>org/bouncycastle/**</exclude>
                                         <!-- The repo's paimon-hive-connector-3.1 is a fat bundle that
                                              carries multi-release variants compiled up to Java 22 (class
                                              major 65/66) under META-INF/versions/{17,21,22}/ (shaded

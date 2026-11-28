@@ -421,10 +421,10 @@ under the License.
         <ranger-plugins-common.version>2.9.0</ranger-plugins-common.version>
         <!-- Matches the jersey-core the FE already carries; only the Ranger plugins ask for it. -->
         <jersey.version>1.19.4</jersey.version>
-        <!-- Huawei IAM pulls bcprov-jdk15on 1.69, whose final 1.70 release is vulnerable to
-             CVE-2023-33202. Use the compatible jdk18on line at 1.84, which also fixes
-             CVE-2025-14813, CVE-2026-0636, CVE-2026-3505, CVE-2026-5588, and CVE-2026-5598. -->
-        <bcprov-jdk18on.version>1.84</bcprov-jdk18on.version>
+        <!-- Keep the provider and MaxCompute's PKIX modules on the same maintained release.
+             1.87 includes the 1.85/1.86 certificate, signature and parser security fixes;
+             replacing the retired jdk15on artifact alone does not cover those advisories. -->
+        <bcprov-jdk18on.version>1.87</bcprov-jdk18on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
@@ -856,6 +856,17 @@ under the License.
             <dependency>
                 <groupId>org.bouncycastle</groupId>
                 <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bcprov-jdk18on.version}</version>
+            </dependency>
+            <!-- PKIX/PEM consumers must not mix a new provider with older signed utility modules. -->
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk18on</artifactId>
+                <version>${bcprov-jdk18on.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcutil-jdk18on</artifactId>
                 <version>${bcprov-jdk18on.version}</version>
             </dependency>
             <dependency>

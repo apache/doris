@@ -31,8 +31,8 @@ under the License.
     <packaging>jar</packaging>
     <name>Doris BE Java Extensions - Paimon S3 Shade</name>
     <description>
-        Repackages Paimon's self-contained S3 FileIO plugin without the outer multi-release
-        entries that leak out of its embedded plugin runtime.
+        Repackages Paimon's self-contained S3 FileIO plugin with the managed Bouncy Castle provider
+        and without the outer multi-release entries that leak out of its embedded plugin runtime.
     </description>
 
     <dependencies>
@@ -41,8 +41,8 @@ under the License.
           paimon-plugin-s3/. Its build also copies that runtime's META-INF/versions tree to the
           OUTER jar. Those outer entries include an older Bouncy Castle overlay and therefore
           override parts of hadoop-common's bcprov-jdk18on when both jars share the scanner
-          classloader. Keep the embedded runtime byte-for-byte, but remove the accidental outer
-          overlay. Optional plus wildcard exclusions ensure consumers get only this corrected jar,
+          classloader. Remove the accidental outer overlay and replace the embedded provider below.
+          Optional plus wildcard exclusions ensure consumers get only this corrected jar,
           never the source artifact or another transitive copy.
         -->
         <dependency>
@@ -55,6 +55,13 @@ under the License.
                     <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <!-- Paimon's component-only loader cannot use the provider on the scanner classpath.
+             Replace its complete embedded BC tree, including multi-release classes, at the same prefix. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <optional>true</optional>
         </dependency>
     </dependencies>
 
@@ -122,9 +129,19 @@ under the License.
                                     <version>${paimon.version}</version>
                                     <overWrite>true</overWrite>
                                     <outputDirectory>${project.build.outputDirectory}</outputDirectory>
-                                    <!-- This matches only the outer overlay. The embedded
-                                         paimon-plugin-s3/META-INF/versions/** tree is preserved. -->
-                                    <excludes>META-INF/maven/**,META-INF/versions/**</excludes>
+                                    <!-- Remove old BC classes before unpacking their replacement, so retired
+                                         classes cannot survive alongside the new provider. Keep non-BC contents. -->
+                                    <excludes>META-INF/maven/**,META-INF/versions/**,paimon-plugin-s3/org/bouncycastle/**,paimon-plugin-s3/META-INF/versions/**/org/bouncycastle/**</excludes>
+                                </artifactItem>
+                                <artifactItem>
+                                    <groupId>org.bouncycastle</groupId>
+                                    <artifactId>bcprov-jdk18on</artifactId>
+                                    <version>${bcprov-jdk18on.version}</version>
+                                    <overWrite>true</overWrite>
+                                    <outputDirectory>${project.build.outputDirectory}/paimon-plugin-s3</outputDirectory>
+                                    <!-- The upstream embedded runtime is unsigned. Do not copy a signed jar's
+                                         manifest/signatures into it or overwrite unrelated service registrations. -->
+                                    <includes>org/bouncycastle/**,META-INF/versions/**/org/bouncycastle/**,META-INF/LICENSE.md</includes>
                                 </artifactItem>
                             </artifactItems>
                         </configuration>
