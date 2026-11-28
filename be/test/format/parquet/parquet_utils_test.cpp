@@ -24,7 +24,11 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/types.h"
 
 namespace doris::parquet_utils {
@@ -192,6 +196,77 @@ TEST(ParquetUtilsTest, DecodeStatisticsValue) {
     std::string encoded(sizeof(Int32), '\0');
     memcpy(encoded.data(), &value, sizeof(Int32));
     EXPECT_EQ("12345", decode_statistics_value(&field, tparquet::Type::INT32, encoded, tz));
+}
+
+TEST(ParquetUtilsTest, DecodeStatisticsValueByteArray) {
+    auto tz = cctz::utc_time_zone();
+
+    // Unannotated BYTE_ARRAY mapped to VARBINARY (non-nullable and nullable).
+    const std::string raw_binary("\x01\x01\x00\x02\xFF\x01\x61", 7);
+    {
+        FieldSchema binary_field;
+        binary_field.name = "metadata";
+        binary_field.parquet_schema.__set_type(tparquet::Type::BYTE_ARRAY);
+        binary_field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+        binary_field.data_type = std::make_shared<DataTypeVarbinary>();
+        binary_field.physical_type = tparquet::Type::BYTE_ARRAY;
+
+        EXPECT_EQ(raw_binary, decode_statistics_value(&binary_field, tparquet::Type::BYTE_ARRAY,
+                                                      raw_binary, tz));
+    }
+    {
+        FieldSchema nullable_binary_field;
+        nullable_binary_field.name = "value";
+        nullable_binary_field.parquet_schema.__set_type(tparquet::Type::BYTE_ARRAY);
+        nullable_binary_field.parquet_schema.__set_repetition_type(
+                tparquet::FieldRepetitionType::OPTIONAL);
+        nullable_binary_field.data_type = make_nullable(std::make_shared<DataTypeVarbinary>());
+        nullable_binary_field.physical_type = tparquet::Type::BYTE_ARRAY;
+
+        EXPECT_EQ(raw_binary, decode_statistics_value(&nullable_binary_field,
+                                                      tparquet::Type::BYTE_ARRAY, raw_binary, tz));
+    }
+
+    // Annotated UTF-8 BYTE_ARRAY mapped to STRING.
+    {
+        FieldSchema string_field;
+        string_field.name = "label";
+        string_field.parquet_schema.__set_type(tparquet::Type::BYTE_ARRAY);
+        string_field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        string_field.parquet_schema.__set_converted_type(tparquet::ConvertedType::UTF8);
+        tparquet::LogicalType logical;
+        logical.__set_STRING(tparquet::StringType());
+        string_field.parquet_schema.__set_logicalType(logical);
+        string_field.data_type = make_nullable(std::make_shared<DataTypeString>());
+        string_field.physical_type = tparquet::Type::BYTE_ARRAY;
+
+        EXPECT_EQ("hello",
+                  decode_statistics_value(&string_field, tparquet::Type::BYTE_ARRAY, "hello", tz));
+    }
+
+    // BYTE_ARRAY-backed DECIMAL still converts through ColumnString (StringToDecimal).
+    {
+        FieldSchema decimal_field;
+        decimal_field.name = "amount";
+        decimal_field.parquet_schema.__set_type(tparquet::Type::BYTE_ARRAY);
+        decimal_field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        decimal_field.parquet_schema.__set_converted_type(tparquet::ConvertedType::DECIMAL);
+        decimal_field.parquet_schema.__set_precision(10);
+        decimal_field.parquet_schema.__set_scale(2);
+        tparquet::DecimalType dec_type;
+        dec_type.__set_precision(10);
+        dec_type.__set_scale(2);
+        tparquet::LogicalType logical;
+        logical.__set_DECIMAL(dec_type);
+        decimal_field.parquet_schema.__set_logicalType(logical);
+        decimal_field.data_type = make_nullable(std::make_shared<DataTypeDecimal128>(10, 2));
+        decimal_field.physical_type = tparquet::Type::BYTE_ARRAY;
+
+        // 1234 in big-endian two's complement -> 12.34 with scale 2.
+        const std::string encoded_decimal("\x04\xD2", 2);
+        EXPECT_EQ("12.34", decode_statistics_value(&decimal_field, tparquet::Type::BYTE_ARRAY,
+                                                   encoded_decimal, tz));
+    }
 }
 
 TEST(ParquetUtilsTest, BuildPathMap) {

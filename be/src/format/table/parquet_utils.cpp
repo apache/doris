@@ -29,8 +29,10 @@
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/primitive_type.h"
 #include "format/parquet/parquet_column_convert.h"
 #include "util/string_util.h"
 #include "util/unaligned.h"
@@ -367,9 +369,20 @@ std::string decode_statistics_value(const FieldSchema* schema_field,
         break;
     }
     case tparquet::Type::type::BYTE_ARRAY: {
-        auto physical_col = ColumnString::create();
-        physical_col->insert_data(encoded_value.data(), encoded_value.size());
-        physical_column = std::move(physical_col);
+        // Unannotated BYTE_ARRAY columns (for example plain binary or Variant metadata/value
+        // leaves) map to TYPE_VARBINARY when enable_mapping_varbinary is enabled, and
+        // PhysicalToLogicalConverter returns ConsistentPhysicalConverter for them.
+        // DataTypeVarbinarySerDe::to_string asserts ColumnVarbinary, whereas UTF-8/STRING and
+        // BYTE_ARRAY-backed DECIMAL converters still expect ColumnString.
+        if (logical_data_type->get_primitive_type() == PrimitiveType::TYPE_VARBINARY) {
+            auto physical_col = ColumnVarbinary::create();
+            physical_col->insert_data(encoded_value.data(), encoded_value.size());
+            physical_column = std::move(physical_col);
+        } else {
+            auto physical_col = ColumnString::create();
+            physical_col->insert_data(encoded_value.data(), encoded_value.size());
+            physical_column = std::move(physical_col);
+        }
         break;
     }
     case tparquet::Type::type::FIXED_LEN_BYTE_ARRAY: {
