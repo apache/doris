@@ -61,7 +61,8 @@ public final class AzureUri {
      *
      * <p>Strips any URL query string (everything after the first {@code ?}) and
      * fragment (everything after the first {@code #}) before extracting the key,
-     * then percent-decodes the key as UTF-8. The container name is validated
+     * then percent-decodes the key as UTF-8, keeping a literal {@code +} as a plus
+     * sign. The container name is validated
      * against Azure's naming rules and is NOT decoded (Azure containers are
      * required to be ASCII per the storage service contract).
      *
@@ -159,7 +160,9 @@ public final class AzureUri {
         if (raw.isEmpty()) {
             return raw;
         }
-        return URLDecoder.decode(raw, StandardCharsets.UTF_8);
+        // URLDecoder follows form encoding, where '+' means a space. In a URI path '+' is a literal
+        // plus sign, so protect it and let only %XX escapes be decoded.
+        return URLDecoder.decode(raw.replace("+", "%2B"), StandardCharsets.UTF_8);
     }
 
     public String scheme() {
