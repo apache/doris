@@ -21,6 +21,7 @@ import org.apache.doris.arrowflight.auth2.FlightBearerTokenAuthenticator;
 import org.apache.doris.arrowflight.auth2.FlightRemoteIpServerStreamTracer;
 import org.apache.doris.arrowflight.sessions.FlightSessionsInConnectPool;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.service.ExecuteEnv;
@@ -113,7 +114,8 @@ public class DorisFlightSqlService {
         flightServer = FlightServer.builder(allocator, Location.forGrpcInsecure("0.0.0.0", port), producer)
                 .transportHint(GRPC_BUILDER_CONSUMER, (Consumer<ServerBuilder<?>>) builder ->
                         builder.addStreamTracerFactory(new FlightRemoteIpServerStreamTracer.Factory()))
-                .headerAuthenticator(new FlightBearerTokenAuthenticator(flightSessionsManager)).build();
+                .headerAuthenticator(new FlightBearerTokenAuthenticator(flightSessionsManager,
+                        Env.getCurrentEnv().getAuthenticatorManager())).build();
         LOG.info("Arrow Flight SQL service is created, port: {}, arrow_flight_max_connections: {} (effective: {},"
                         + " within qe_max_connection: {})", port,
                 Config.arrow_flight_max_connections, flightMaxConnections, Config.qe_max_connection);

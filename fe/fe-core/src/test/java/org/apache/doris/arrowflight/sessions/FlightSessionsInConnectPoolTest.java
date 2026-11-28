@@ -18,11 +18,13 @@
 package org.apache.doris.arrowflight.sessions;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.arrowflight.auth2.FlightAuthResult;
+import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.TokenMasker;
+import org.apache.doris.mysql.authenticate.AuthenticateResponse;
+import org.apache.doris.mysql.privilege.UserPropertyMgr;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolTestSupport;
@@ -39,6 +41,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Set;
+
 /**
  * A bearer token is the name an Arrow Flight SQL session is registered in the connection pool
  * under, and nothing else: it is issued by opening the session and is invalid the moment the
@@ -46,7 +50,8 @@ import org.mockito.Mockito;
  */
 public class FlightSessionsInConnectPoolTest {
     private static final UserIdentity ALICE = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
-    private static final FlightAuthResult ALICE_AUTH = FlightAuthResult.of("alice", ALICE, "10.26.20.3");
+    private static final AuthenticateResponse ALICE_AUTH = new AuthenticateResponse(true, ALICE);
+    private static final String REMOTE_IP = "10.26.20.3";
 
     private boolean savedRunningUnitTest;
     private MockedStatic<Env> mockedEnv;
@@ -79,7 +84,7 @@ public class FlightSessionsInConnectPoolTest {
         ConnectScheduler scheduler = new ConnectScheduler(10, 5);
         FlightSessionsInConnectPool sessions = new FlightSessionsInConnectPool(scheduler);
 
-        String token = sessions.openSession(ALICE_AUTH);
+        String token = sessions.openSession(ALICE_AUTH, REMOTE_IP);
         ConnectContext ctx = sessions.getConnectContext(token);
 
         Assertions.assertSame(scheduler.getContextWithPeerIdentity(token), ctx);
@@ -93,11 +98,34 @@ public class FlightSessionsInConnectPoolTest {
         Assertions.assertEquals(1, scheduler.getConnectPoolMgr().getFlightConnectionNum());
 
         // Every session has a token of its own, and each names only its own session.
-        String other = sessions.openSession(ALICE_AUTH);
+        String other = sessions.openSession(ALICE_AUTH, REMOTE_IP);
         Assertions.assertNotEquals(token, other);
         Assertions.assertNotSame(ctx, sessions.getConnectContext(other));
         Assertions.assertSame(ctx, sessions.getConnectContext(token));
         Assertions.assertEquals(2, scheduler.getConnectionNum());
+    }
+
+    @Test
+    public void testTemporaryPrincipalIsVisibleDuringConnectionAdmission() {
+        BasicPrincipal principal = BasicPrincipal.builder().name("alice").authenticator("test_integration").build();
+        AuthenticateResponse authenticated = new AuthenticateResponse(true, ALICE, true, principal, Set.of("reader"));
+        UserPropertyMgr properties = new UserPropertyMgr();
+        Assertions.assertEquals(0L, properties.getMaxConn("alice"));
+        Mockito.when(env.getAuth().getMaxConn("alice")).thenAnswer(ignored -> properties.getMaxConn("alice"));
+        Mockito.when(env.getAuth().getQueryTimeout("alice")).thenAnswer(ignored -> {
+            Assertions.assertSame(principal, ConnectContext.get().getAuthenticatedPrincipal());
+            return properties.getQueryTimeout("alice");
+        });
+        ConnectContext previous = ConnectContext.get();
+        FlightSessionsInConnectPool sessions = new FlightSessionsInConnectPool(new ConnectScheduler(10, 5));
+
+        String token = sessions.openSession(authenticated, REMOTE_IP);
+        ConnectContext context = sessions.getConnectContext(token);
+        Assertions.assertTrue(context.getIsTempUser());
+        Assertions.assertSame(principal, context.getAuthenticatedPrincipal());
+        Assertions.assertEquals(Set.of("reader"), context.getAuthenticatedRoles());
+        Assertions.assertSame(previous, ConnectContext.get());
+        sessions.closeConnectContext(token);
     }
 
     @Test
@@ -119,7 +147,7 @@ public class FlightSessionsInConnectPoolTest {
     public void testCloseSessionEndsTheSessionAndWithItTheToken() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 5);
         FlightSessionsInConnectPool sessions = new FlightSessionsInConnectPool(scheduler);
-        String token = sessions.openSession(ALICE_AUTH);
+        String token = sessions.openSession(ALICE_AUTH, REMOTE_IP);
         ConnectContext ctx = sessions.getConnectContext(token);
         // A statement may still be running on another thread when the client closes the session.
         StmtExecutor running = Mockito.mock(StmtExecutor.class);
@@ -143,7 +171,7 @@ public class FlightSessionsInConnectPoolTest {
     public void testKillConnectionEndsTheToken() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 5);
         FlightSessionsInConnectPool sessions = new FlightSessionsInConnectPool(scheduler);
-        String token = sessions.openSession(ALICE_AUTH);
+        String token = sessions.openSession(ALICE_AUTH, REMOTE_IP);
 
         sessions.getConnectContext(token).kill(true);
 
@@ -155,7 +183,7 @@ public class FlightSessionsInConnectPoolTest {
     public void testWaitTimeoutEndsTheToken() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 5);
         FlightSessionsInConnectPool sessions = new FlightSessionsInConnectPool(scheduler);
-        String token = sessions.openSession(ALICE_AUTH);
+        String token = sessions.openSession(ALICE_AUTH, REMOTE_IP);
         ConnectContext ctx = sessions.getConnectContext(token);
         long waitTimeoutMs = ctx.getSessionVariable().getWaitTimeoutS() * 1000L;
 
@@ -176,10 +204,10 @@ public class FlightSessionsInConnectPoolTest {
     public void testASessionThatDoesNotFitIsRefusedAndLeavesNothing() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 1);
         FlightSessionsInConnectPool sessions = new FlightSessionsInConnectPool(scheduler);
-        String first = sessions.openSession(ALICE_AUTH);
+        String first = sessions.openSession(ALICE_AUTH, REMOTE_IP);
 
         FlightRuntimeException refused = Assertions.assertThrows(FlightRuntimeException.class,
-                () -> sessions.openSession(ALICE_AUTH));
+                () -> sessions.openSession(ALICE_AUTH, REMOTE_IP));
 
         Assertions.assertEquals(FlightStatusCode.RESOURCE_EXHAUSTED, refused.status().code());
         Assertions.assertEquals("Reach limit of connections. Total: 10, User: 100, Current: 1, Arrow Flight SQL: 1"

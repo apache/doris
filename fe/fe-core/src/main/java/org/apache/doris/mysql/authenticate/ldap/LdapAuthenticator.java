@@ -78,6 +78,11 @@ public class LdapAuthenticator implements Authenticator {
     }
 
     @Override
+    public boolean acceptsSingleStepRequest() {
+        return true;
+    }
+
+    @Override
     public boolean canDeal(String qualifiedUser) {
         if (qualifiedUser.equals(Auth.ROOT_USER) || qualifiedUser.equals(Auth.ADMIN_USER)) {
             return false;

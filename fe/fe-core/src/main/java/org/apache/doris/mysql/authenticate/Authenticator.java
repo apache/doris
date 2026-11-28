@@ -26,5 +26,10 @@ public interface Authenticator {
 
     boolean canDeal(String qualifiedUser);
 
+    /** Whether this authenticator can consume a request without its MySQL password resolver. */
+    default boolean acceptsSingleStepRequest() {
+        return false;
+    }
+
     PasswordResolver getPasswordResolver();
 }

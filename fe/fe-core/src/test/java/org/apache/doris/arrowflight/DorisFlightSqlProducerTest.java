@@ -18,7 +18,6 @@
 package org.apache.doris.arrowflight;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.arrowflight.auth2.FlightAuthResult;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
@@ -27,6 +26,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
@@ -210,7 +210,7 @@ public class DorisFlightSqlProducerTest {
 
         FlightSessionsManager sessionsManager = new FlightSessionsManager() {
             @Override
-            public String openSession(FlightAuthResult authResult) {
+            public String openSession(AuthenticateResponse response, String remoteIp) {
                 throw new UnsupportedOperationException("not exercised by this test");
             }
 

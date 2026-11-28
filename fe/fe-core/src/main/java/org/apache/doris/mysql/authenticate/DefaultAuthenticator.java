@@ -18,9 +18,11 @@
 package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.NativePassword;
 import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.Password;
@@ -47,25 +49,38 @@ public class DefaultAuthenticator implements Authenticator {
             LOG.debug("user:{} start to default authenticate.", request.getUserName());
         }
         Password password = request.getPassword();
-        if (!(password instanceof NativePassword)) {
-            return AuthenticateResponse.failedResponse;
-        }
-        NativePassword nativePassword = (NativePassword) password;
-
         List<UserIdentity> currentUserIdentity = Lists.newArrayList();
         try {
-            if (request.getUserIdentity() != null) {
-                Env.getCurrentEnv().getAuth().checkPasswordForUserIdentity(request.getUserIdentity(),
-                        nativePassword.getRemotePasswd(), nativePassword.getRandomString(), currentUserIdentity);
+            if (CredentialType.CLEAR_TEXT_PASSWORD.equals(request.getCredentialType())
+                    && password instanceof ClearPassword) {
+                Env.getCurrentEnv().getAuth().checkLocalPlainPassword(request.getUserName(), request.getRemoteIp(),
+                        ((ClearPassword) password).getPassword(), currentUserIdentity);
+            } else if (password instanceof NativePassword) {
+                checkNativePassword(request, (NativePassword) password, currentUserIdentity);
             } else {
-                Env.getCurrentEnv().getAuth().checkPassword(request.getUserName(), request.getRemoteIp(),
-                        nativePassword.getRemotePasswd(), nativePassword.getRandomString(), currentUserIdentity);
+                return AuthenticateResponse.failedResponse;
             }
         } catch (AuthenticationException e) {
             ErrorReport.report(e.errorCode, e.msgs);
             return AuthenticateResponse.failedResponse;
         }
         return new AuthenticateResponse(true, currentUserIdentity.get(0));
+    }
+
+    private void checkNativePassword(AuthenticateRequest request, NativePassword nativePassword,
+            List<UserIdentity> currentUserIdentity) throws AuthenticationException {
+        if (request.getUserIdentity() != null) {
+            Env.getCurrentEnv().getAuth().checkPasswordForUserIdentity(request.getUserIdentity(),
+                    nativePassword.getRemotePasswd(), nativePassword.getRandomString(), currentUserIdentity);
+        } else {
+            Env.getCurrentEnv().getAuth().checkPassword(request.getUserName(), request.getRemoteIp(),
+                    nativePassword.getRemotePasswd(), nativePassword.getRandomString(), currentUserIdentity);
+        }
+    }
+
+    @Override
+    public boolean acceptsSingleStepRequest() {
+        return true;
     }
 
     @Override

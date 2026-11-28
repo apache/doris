@@ -258,12 +258,17 @@ public class Auth implements Writable {
                 checkAccountLocked(currentUser.get(0));
             }
         } else {
-            readLock();
-            try {
-                userManager.checkPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
-            } finally {
-                readUnlock();
-            }
+            checkLocalPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
+        }
+    }
+
+    public void checkLocalPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        readLock();
+        try {
+            userManager.checkPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
+        } finally {
+            readUnlock();
         }
     }
 

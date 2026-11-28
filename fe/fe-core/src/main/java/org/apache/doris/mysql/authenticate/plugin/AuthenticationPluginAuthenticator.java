@@ -135,6 +135,11 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
     }
 
     @Override
+    public boolean acceptsSingleStepRequest() {
+        return true;
+    }
+
+    @Override
     public boolean canDeal(String qualifiedUser) {
         return !Auth.ROOT_USER.equals(qualifiedUser) && !Auth.ADMIN_USER.equals(qualifiedUser);
     }

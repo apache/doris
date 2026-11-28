@@ -18,11 +18,11 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.arrowflight.auth2.FlightAuthResult;
 import org.apache.doris.arrowflight.sessions.FlightSessionsInConnectPool;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
@@ -145,7 +145,7 @@ public class ConnectionExceedTest {
             mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(mockEnv);
 
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
-            FlightAuthResult authResult = FlightAuthResult.of("test_user", userIdentity, "127.0.0.1");
+            AuthenticateResponse authResult = new AuthenticateResponse(true, userIdentity);
 
             // Two Flight sessions fill the sub-quota, next to a MySQL connection of the same user: the
             // refusal has to tell the Flight usage from the pool's count.
@@ -156,13 +156,13 @@ public class ConnectionExceedTest {
             Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(mysql));
             FlightSessionsInConnectPool manager = new FlightSessionsInConnectPool(scheduler);
             for (int i = 0; i < 2; i++) {
-                String token = manager.openSession(authResult);
+                String token = manager.openSession(authResult, "127.0.0.1");
                 Assertions.assertSame(scheduler.getContextWithPeerIdentity(token), manager.getConnectContext(token));
             }
             Assertions.assertEquals(2, scheduler.getConnectPoolMgr().getFlightConnectionNum());
 
             FlightRuntimeException refused = Assertions.assertThrows(FlightRuntimeException.class,
-                    () -> manager.openSession(authResult));
+                    () -> manager.openSession(authResult, "127.0.0.1"));
             Assertions.assertEquals(FlightStatusCode.RESOURCE_EXHAUSTED, refused.status().code());
             Assertions.assertEquals(
                     "Reach limit of connections. Total: 1000, User: 100, Current: 3, Arrow Flight SQL: 2 (current: 2)",

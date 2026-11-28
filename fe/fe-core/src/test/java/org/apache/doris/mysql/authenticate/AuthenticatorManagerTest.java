@@ -94,6 +94,43 @@ class AuthenticatorManagerTest {
     }
 
     @Test
+    void testSingleStepOidcRequiresSecureTransportBeforeCallingAuthenticator() throws Exception {
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager("default"));
+        Authenticator primary = Mockito.mock(Authenticator.class);
+        Mockito.when(primary.acceptsSingleStepRequest()).thenReturn(true);
+        Mockito.doReturn(primary).when(manager).chooseAuthenticator(USER_NAME, REMOTE_IP);
+        AuthenticateRequest request = AuthenticateRequest.builder()
+                .userName(USER_NAME)
+                .remoteHost(REMOTE_IP)
+                .clientType("arrow-flight-sql")
+                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credential(new byte[] {1})
+                .build();
+
+        AuthenticateResponse result = manager.authenticate(request, false);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertTrue(result.getFailureSummary().getClientVisibleMessage().contains("secure transport"));
+        Mockito.verify(primary, Mockito.never()).authenticate(Mockito.any());
+        Mockito.verify(manager, Mockito.never()).getAuthenticationChainAuthenticator();
+    }
+
+    @Test
+    void testSingleStepDoesNotInvokeHandshakeOnlyAuthenticator() throws Exception {
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager("default"));
+        Authenticator legacy = Mockito.mock(Authenticator.class);
+        Mockito.doReturn(legacy).when(manager).chooseAuthenticator(USER_NAME, REMOTE_IP);
+
+        AuthenticateRequest request = authenticateRequest(new ClearPassword("secret")).orElseThrow();
+        AuthenticateResponse result = manager.authenticate(request, false);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertTrue(result.getFailureSummary().getClientVisibleMessage().contains("unavailable"));
+        Mockito.verify(legacy, Mockito.never()).authenticate(Mockito.any());
+        Mockito.verify(legacy, Mockito.never()).getPasswordResolver();
+    }
+
+    @Test
     void testBoundClearCredentialsRequireRealTlsBeforeResolver() throws Exception {
         AuthenticationIntegrationAuthenticator bound = Mockito.mock(AuthenticationIntegrationAuthenticator.class);
         Mockito.when(bound.isBoundAuthentication()).thenReturn(true);
