@@ -318,6 +318,15 @@ public class MTMV extends OlapTable {
         return getIvmInfo().isEnableIvm();
     }
 
+    public IvmRefreshSummary.MetricValues getIvmRefreshMetricValues() {
+        readMvLock();
+        try {
+            return ivmRefreshSummary.metricValues();
+        } finally {
+            readMvUnlock();
+        }
+    }
+
     /**
      * Whether a refresh task of this IVM MV has ever succeeded. Until one has, the MV has no baseline for the
      * incremental refresh to keep up, and the refresh that builds it is not the incremental refresh falling back.
@@ -456,10 +465,9 @@ public class MTMV extends OlapTable {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
-            if (ivmInfo.isEnableIvm()) {
-                // From the task as the journal carries it, here and in the replay alike, so that the summary does
-                // not depend on how many tasks the history keeps and a follower that takes over has the same one.
-                ivmRefreshSummary.update(task);
+            if (ivmInfo.isEnableIvm() && task.belongsToMtmv(id)) {
+                // Summary sequences belong to one MV. A stale name can now refer to another MV.
+                ivmRefreshSummary.update(task, isReplay);
             }
             compatiblePctSnapshot(partitionSnapshots);
             // What this task wrote is described by the epochs just recorded, so a partition the result

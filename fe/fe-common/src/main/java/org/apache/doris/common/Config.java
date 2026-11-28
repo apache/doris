@@ -2686,6 +2686,15 @@ public class Config extends ConfigBase {
             description = "Whether to enable the changelog feature, including the commit TSO")
     public static boolean enable_feature_changelog = false;
 
+    @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Whether the Master FE samples IVM materialized views for monitoring.")
+    public static volatile boolean enable_changelog_monitor = true;
+
+    @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL,
+            description = "The interval in seconds at which the Master FE samples IVM materialized views, "
+                    + "with a minimum of one second.")
+    public static volatile int changelog_monitor_interval_seconds = 15;
+
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = "Set the "
             + "maximum " + "byte " + "length " + "of a " + "binlog " + "message")
     public static int max_binlog_messsage_size = 1024 * 1024 * 1024;

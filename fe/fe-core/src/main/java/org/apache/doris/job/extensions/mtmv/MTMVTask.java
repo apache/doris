@@ -335,6 +335,9 @@ public class MTMVTask extends AbstractTask {
     // reason is ivmFallbackReason. A fallback that committed nothing did not change how the MV was refreshed.
     @SerializedName("ifb")
     private boolean ivmFallback;
+    // Assigned under the MV write lock when this result is accepted. Zero denotes a legacy or canceled result.
+    @SerializedName("iss")
+    private long ivmSummarySeq;
     // The kinds of work this task has committed, which ivmRefreshMethod is decided from. Concurrent because a STOP
     // decides it from the cancel thread while the worker may still be committing.
     private transient Set<IvmRefreshMethod> committedRefreshKinds = ConcurrentHashMap.newKeySet();
@@ -363,6 +366,7 @@ public class MTMVTask extends AbstractTask {
     // only for test
     public MTMVTask(MTMV mtmv, MTMVRelation relation, MTMVTaskContext taskContext) {
         this.mtmv = mtmv;
+        this.mtmvId = mtmv.getId();
         this.relation = relation;
         this.taskContext = taskContext;
     }
@@ -2226,6 +2230,18 @@ public class MTMVTask extends AbstractTask {
 
     public String getIvmFailureReason() {
         return ivmFailureReason;
+    }
+
+    public boolean belongsToMtmv(long mvId) {
+        return mtmvId == mvId;
+    }
+
+    public long getIvmSummarySeq() {
+        return ivmSummarySeq;
+    }
+
+    public void setIvmSummarySeq(long ivmSummarySeq) {
+        this.ivmSummarySeq = ivmSummarySeq;
     }
 
     public boolean isIvmFallback() {
