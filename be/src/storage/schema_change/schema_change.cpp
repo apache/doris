@@ -169,48 +169,34 @@ public:
             int key_number = cast_set<int>(_tablet->num_key_columns());
 
             std::vector<AggregateFunctionPtr> agg_functions;
-            std::vector<AggregateDataPtr> agg_places;
+            // States must be destroyed before the functions they reference.
+            std::vector<std::unique_ptr<AggregateFunctionGuard>> agg_states;
+            agg_functions.reserve(columns - key_number);
+            agg_states.reserve(columns - key_number);
 
             for (int i = key_number; i < columns; i++) {
-                try {
-                    AggregateFunctionPtr function = tablet_schema->column(i).get_aggregate_function(
-                            AGG_LOAD_SUFFIX, tablet_schema->column(i).get_be_exec_version());
-                    if (!function) {
-                        return Status::InternalError(
-                                "could not find aggregate function on column {}, aggregation={}",
-                                tablet_schema->column(i).name(),
-                                tablet_schema->column(i).aggregation());
-                    }
-                    const auto* column = finalized_block.get_by_position(i).column.get();
-                    const IColumn* function_columns[] = {column};
-                    function->check_input_columns_type(function_columns);
-                    function->check_result_column_type(*column);
-                    agg_functions.push_back(function);
-                    // create aggregate data
-                    auto* place = new char[function->size_of_data()];
-                    function->create(place);
-                    agg_places.push_back(place);
-                } catch (...) {
-                    for (int j = 0; j < i - key_number; ++j) {
-                        agg_functions[j]->destroy(agg_places[j]);
-                        delete[] agg_places[j];
-                    }
-                    throw;
+                AggregateFunctionPtr function = tablet_schema->column(i).get_aggregate_function(
+                        AGG_LOAD_SUFFIX, tablet_schema->column(i).get_be_exec_version());
+                if (!function) {
+                    return Status::InternalError(
+                            "could not find aggregate function on column {}, aggregation={}",
+                            tablet_schema->column(i).name(),
+                            tablet_schema->column(i).aggregation());
                 }
+                const auto* column = finalized_block.get_by_position(i).column.get();
+                const IColumn* function_columns[] = {column};
+                function->check_input_columns_type(function_columns);
+                function->check_result_column_type(*column);
+                agg_functions.push_back(std::move(function));
+                agg_states.push_back(
+                        std::make_unique<AggregateFunctionGuard>(agg_functions.back().get()));
             }
-
-            DEFER({
-                for (int i = 0; i < columns - key_number; i++) {
-                    agg_functions[i]->destroy(agg_places[i]);
-                    delete[] agg_places[i];
-                }
-            });
 
             for (int i = 0; i < rows; i++) {
                 auto row_ref = row_refs[i];
                 for (int j = key_number; j < columns; j++) {
                     const auto* column_ptr = row_ref.get_column(j).get();
-                    agg_functions[j - key_number]->add(agg_places[j - key_number],
+                    agg_functions[j - key_number]->add(agg_states[j - key_number]->data(),
                                                        const_cast<const IColumn**>(&column_ptr),
                                                        row_ref.position, _arena);
                 }
@@ -227,9 +213,9 @@ public:
                         auto& column_ptr = finalized_block.get_by_position(j).column;
                         auto column = column_ptr->assert_mutable();
                         agg_functions[j - key_number]->insert_result_into(
-                                agg_places[j - key_number], *column);
+                                agg_states[j - key_number]->data(), *column);
                         column_ptr = std::move(column);
-                        agg_functions[j - key_number]->reset(agg_places[j - key_number]);
+                        agg_functions[j - key_number]->reset(agg_states[j - key_number]->data());
                     }
 
                     if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {

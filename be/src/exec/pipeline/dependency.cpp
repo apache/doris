@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <mutex>
+#include <type_traits>
 
 #include "common/logging.h"
 #include "exec/common/agg_utils.h"
@@ -33,6 +34,7 @@
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/exec_env.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -452,10 +454,22 @@ Status AggSharedState::reset_hash_table() {
                                 }
                             });
 
-                            if (hash_table.has_null_key_data()) {
-                                _destroy_agg_status(
-                                        hash_table.template get_null_key_data<AggregateDataPtr>());
+                            // Only nullable tables publish a mutable NULL state. Revoke it
+                            // before allocation below can fail and close this table again.
+                            if constexpr (std::is_lvalue_reference_v<
+                                                  decltype(hash_table.has_null_key_data())>) {
+                                if (hash_table.has_null_key_data()) {
+                                    auto& null_state =
+                                            hash_table
+                                                    .template get_null_key_data<AggregateDataPtr>();
+                                    _destroy_agg_status(null_state);
+                                    null_state = nullptr;
+                                    hash_table.has_null_key_data() = false;
+                                }
                             }
+
+                            DBUG_EXECUTE_IF("AggSharedState.reset_hash_table.after_destroy",
+                                            DBUG_RUN_CALLBACK());
 
                             aggregate_data_container.reset(new AggregateDataContainer(
                                     sizeof(typename HashTableType::key_type),

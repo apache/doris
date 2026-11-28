@@ -338,30 +338,44 @@ public:
 
 private:
     void _expand() {
-        _index_in_sub_container = 0;
-        _current_keys = nullptr;
-        _current_agg_data = nullptr;
+        const auto old_key_size = _key_containers.size();
+        const auto old_value_size = _value_containers.size();
+        char* new_keys = nullptr;
+        AggregateDataPtr new_agg_data = nullptr;
         try {
-            _current_keys = _arena_pool.alloc(_size_of_key * SUB_CONTAINER_CAPACITY);
-            _key_containers.emplace_back(_current_keys);
+            new_keys = _arena_pool.alloc(_size_of_key * SUB_CONTAINER_CAPACITY);
+#ifdef BE_TEST
+            if (_before_key_registration) {
+                _before_key_registration();
+            }
+#endif
+            _key_containers.emplace_back(new_keys);
 
-            _current_agg_data = (AggregateDataPtr)_arena_pool.alloc(_size_of_aggregate_states *
-                                                                    SUB_CONTAINER_CAPACITY);
-            _value_containers.emplace_back(_current_agg_data);
+            new_agg_data = (AggregateDataPtr)_arena_pool.alloc(_size_of_aggregate_states *
+                                                               SUB_CONTAINER_CAPACITY);
+#ifdef BE_TEST
+            if (_before_value_registration) {
+                _before_value_registration();
+            }
+#endif
+            _value_containers.emplace_back(new_agg_data);
         } catch (...) {
-            if (_current_keys) {
-                _key_containers.pop_back();
-                _current_keys = nullptr;
-            }
-            if (_current_agg_data) {
-                _value_containers.pop_back();
-                _current_agg_data = nullptr;
-            }
+            // Arena owns both buffers even when registration fails. Roll back only
+            // entries actually appended; a non-null allocation is not an entry.
+            _key_containers.resize(old_key_size);
+            _value_containers.resize(old_value_size);
             throw;
         }
+        _current_keys = new_keys;
+        _current_agg_data = new_agg_data;
+        _index_in_sub_container = 0;
     }
 
     static constexpr uint32_t SUB_CONTAINER_CAPACITY = 8192;
+#ifdef BE_TEST
+    inline static thread_local void (*_before_key_registration)() = nullptr;
+    inline static thread_local void (*_before_value_registration)() = nullptr;
+#endif
     Arena _arena_pool;
     std::vector<char*> _key_containers;
     std::vector<AggregateDataPtr> _value_containers;
