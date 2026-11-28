@@ -124,6 +124,7 @@ public class StreamingInsertJobOffsetPersistenceTest {
     @Test
     public void testPausedTvfJobValidatesAlterOffsetAfterRestore() throws Exception {
         StreamingInsertJob job = new StreamingInsertJob();
+        Deencapsulation.setField(job, "properties", Collections.emptyMap());
         Deencapsulation.setField(job, "jobId", 9001L);
         job.setJobStatus(JobStatus.PAUSED);
         Deencapsulation.setField(job, "tvfType", CdcStreamTableValuedFunction.NAME);

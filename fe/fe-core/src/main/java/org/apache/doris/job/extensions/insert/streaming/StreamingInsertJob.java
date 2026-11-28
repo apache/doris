@@ -64,6 +64,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -72,10 +73,13 @@ import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
@@ -501,8 +505,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             ConnectContext previousContext = ConnectContext.get();
             try {
                 makeConnectContext();
-                LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+                long sqlMode = getSqlMode();
+                LogicalPlan logicalPlan = SqlModeHelper.withSqlMode(sqlMode,
+                        () -> new NereidsParser().parseSingle(getExecuteSql()));
                 this.baseCommand = (InsertIntoTableCommand) logicalPlan;
+            } catch (AnalysisException e) {
+                throw new IllegalStateException("Invalid streaming job session variables", e);
             } finally {
                 // Subsequent privilege checks must retain the caller's identity and session roles.
                 ConnectContext.remove();
@@ -1349,31 +1357,33 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    private static boolean checkPrivilege(ConnectContext ctx, String  sql) throws AnalysisException {
-        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+    private static boolean checkInsertPrivilege(ConnectContext ctx, LogicalPlan logicalPlan, String currentDb)
+            throws AnalysisException {
         if (!(logicalPlan instanceof InsertIntoTableCommand)) {
             throw new AnalysisException("Streaming jobs only support INSERT statements");
         }
         LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
-        List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
-        Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
+        List<String> nameParts = ((UnboundLogicalSink<?>) logicalQuery).getNameParts();
+        Preconditions.checkArgument(!nameParts.isEmpty() && nameParts.size() <= 3, "target table name is invalid");
+        String database = nameParts.size() == 1 ? currentDb : nameParts.get(nameParts.size() - 2);
+        String table = nameParts.get(nameParts.size() - 1);
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
                 InternalCatalog.INTERNAL_CATALOG_NAME,
-                targetTable.get(1),
-                targetTable.get(2),
+                database,
+                table,
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ctx.getQualifiedUser(),
                     ctx.getRemoteIP(),
-                    targetTable.get(1),
-                    targetTable.get(2));
+                    database,
+                    table);
         }
         return true;
     }
 
     public static boolean checkPrivilege(ConnectContext ctx, String sql, String targetDb) throws AnalysisException {
         if (StringUtils.isNotEmpty(sql)) {
-            return checkPrivilege(ctx, sql);
+            return checkInsertPrivilege(ctx, new NereidsParser().parseSingle(sql), ctx.getDatabase());
         } else if (StringUtils.isNotEmpty(targetDb)) {
             return checkHasSourceJobPriv(ctx, targetDb);
         } else {
@@ -1382,9 +1392,21 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
+    /** Return the SQL mode applied before a streaming task parses its INSERT. */
+    public long getSqlMode() throws AnalysisException {
+        try {
+            return new StreamingJobProperties(getProperties()).getSessionVariable(VariableMgr.newSessionVariable())
+                    .getSqlMode();
+        } catch (JobException e) {
+            throw new AnalysisException("Invalid streaming job session variables", e);
+        }
+    }
+
     public boolean checkPrivilege(ConnectContext ctx) throws AnalysisException {
         if (StringUtils.isNotEmpty(getExecuteSql())) {
-            return checkPrivilege(ctx, getExecuteSql());
+            LogicalPlan plan = SqlModeHelper.withSqlMode(getSqlMode(), () -> new NereidsParser()
+                    .parseSingle(getExecuteSql(), new LogicalPlanBuilder(Collections.emptyMap())));
+            return checkInsertPrivilege(ctx, plan, getCurrentDbName());
         } else if (StringUtils.isNotEmpty(getTargetDb())) {
             return checkHasSourceJobPriv(ctx, targetDb);
         } else {
@@ -1397,7 +1419,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         ConnectContext ctx = InsertTask.makeConnectContext(userIdentity, getCurrentDbName());
         try {
             if (StringUtils.isNotEmpty(getExecuteSql())) {
-                LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+                LogicalPlan logicalPlan = SqlModeHelper.withSqlMode(getSqlMode(),
+                        () -> new NereidsParser().parseSingle(getExecuteSql()));
                 LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
                 List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
                 Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
@@ -1415,6 +1438,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 log.info("insert sql and target db are both empty");
                 return false;
             }
+        } catch (AnalysisException e) {
+            throw new IllegalStateException("Invalid streaming job session variables", e);
         } finally {
             ctx.cleanup();
         }
@@ -1435,7 +1460,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private String generateEncryptedSql() {
         makeConnectContext();
         TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
-        new NereidsParser().parseForEncryption(getExecuteSql(), indexInSqlToString);
+        try {
+            SqlModeHelper.withSqlMode(getSqlMode(),
+                    () -> new NereidsParser().parseForEncryption(getExecuteSql(), indexInSqlToString));
+        } catch (AnalysisException e) {
+            throw new IllegalStateException("Invalid streaming job session variables", e);
+        }
         BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
         String encryptSql = BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
         setEncryptedSql(encryptSql);
