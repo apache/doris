@@ -17,22 +17,59 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
+import org.apache.doris.cdcclient.common.ManagedReader;
+import org.apache.doris.cdcclient.common.ReaderBatch;
+
 import org.apache.flink.api.connector.source.SourceSplit;
+import org.apache.kafka.connect.source.SourceRecord;
 
-import lombok.Data;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
-/**
- * Generic context for managing a single snapshot split reader.
- *
- * <p>This class encapsulates the split, reader, and state for a single snapshot split
- *
- * @param <S> Split type (extends MySqlSnapshotSplit)
- * @param <R> Reader type (e.g., SnapshotSplitReader)
- * @param <ST> Split state type like MySqlSnapshotSplitState
- */
-@Data
-public class SnapshotReaderContext<S extends SourceSplit, R, ST> {
+import lombok.Getter;
+import lombok.Setter;
+
+/** Keeps one split's reader, state and outstanding result together. */
+@Getter
+public class SnapshotReaderContext<S extends SourceSplit, R, ST> implements AutoCloseable {
     private final S split;
-    private final R reader;
     private final ST splitState;
+    private ManagedReader<R> managedReader;
+    private CompletableFuture<Void> submitFuture;
+    @Setter private CompletableFuture<ReaderBatch<SourceRecord>> pollFuture;
+    @Setter private ReaderBatch<SourceRecord> batch;
+    private volatile boolean closed;
+
+    public SnapshotReaderContext(S split, ST splitState) {
+        this.split = split;
+        this.splitState = splitState;
+    }
+
+    public void submit(ManagedReader<R> reader, Runnable submitSplit, Executor executor) {
+        reader.setSnapshotSplitId(split.splitId());
+        managedReader = reader;
+        submitFuture =
+                CompletableFuture.runAsync(
+                        () -> {
+                            if (!closed) {
+                                submitSplit.run();
+                            }
+                        },
+                        executor);
+    }
+
+    @Override
+    public void close() {
+        closed = true;
+        if (pollFuture != null) {
+            // Claimed batches belong to the consumer; discard only unclaimed results.
+            pollFuture.thenAccept(ReaderBatch::close);
+        }
+        if (submitFuture != null && !submitFuture.isDone()) {
+            // An in-flight submit may still open a connection; close it after submit returns.
+            submitFuture.whenComplete((ignored, failure) -> managedReader.close());
+        } else if (managedReader != null) {
+            managedReader.close();
+        }
+    }
 }

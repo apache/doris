@@ -30,9 +30,13 @@ import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 class EnvTest {
 
@@ -64,17 +68,22 @@ class EnvTest {
     }
 
     @Test
-    void failedTvfPreparationRemovesClaimedReader() {
+    void failedTvfPreparationRemovesClaimedReader() throws Exception {
         Env env = Env.getCurrentEnv();
+        PipelineCoordinator coordinator = new PipelineCoordinator(1);
         FetchRecordRequest request = tvfRequest("68168002", "task");
+        request.setMeta(Map.of("splits", List.of()));
         try {
+            StreamingResponseBody response = coordinator.fetchRecordStream(request);
             CommonException exception =
                     assertThrows(
                             CommonException.class,
-                            () -> new PipelineCoordinator(1).fetchRecordStream(request));
-            assertEquals("miss meta offset", exception.getCause().getMessage());
+                            () -> response.writeTo(OutputStream.nullOutputStream()));
+            assertEquals(
+                    "Invalid meta format: 'splits' array is empty", exception.getCause().getMessage());
             assertNull(env.getReaderIfPresent(request.getJobId()));
         } finally {
+            coordinator.closeTaskScheduler();
             SourceReader reader = env.getReaderIfPresent(request.getJobId());
             if (reader != null) {
                 reader.release(request);

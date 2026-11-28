@@ -17,9 +17,17 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
+import org.apache.doris.cdcclient.common.CdcResourceManager;
+import org.apache.doris.cdcclient.common.CdcResourceManager.ReaderGroup;
+import org.apache.doris.cdcclient.common.CdcResourceManager.SnapshotQuota;
+import org.apache.doris.cdcclient.common.Env;
+import org.apache.doris.cdcclient.common.ManagedReader;
+import org.apache.doris.cdcclient.common.ReaderQuotaUnavailableException;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
+import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.cdcclient.utils.SchemaChangeManager;
+import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 
@@ -30,7 +38,10 @@ import org.apache.kafka.connect.source.SourceRecord;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -68,6 +79,81 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
 
     private final Map<String, Class<?>> splitKeyClassCache = new ConcurrentHashMap<>();
 
+    protected volatile SnapshotQuota snapshotQuota;
+    protected JobBaseRecordRequest snapshotRequest;
+    protected ExecutorService snapshotPollExecutor;
+
+    protected <R> ManagedReader<R> createIncrementalReader(
+            JobBaseRecordRequest request,
+            Supplier<R> factory,
+            Function<R, ExecutorService> closer) {
+        ReaderGroup group = readerGroup(request, ReaderGroup.JOB_INCREMENTAL);
+        CdcResourceManager resources = Env.getCurrentEnv().getCdcResourceManager();
+        ManagedReader<R> reader =
+                resources.createIncrementalReader(request.getJobId(), group, factory, closer);
+        if (reader == null) {
+            throw quotaUnavailable(request, resources, group);
+        }
+        return reader;
+    }
+
+    /** Reserve this batch's reader slots before any physical reader is opened. */
+    protected SnapshotQuota prepareSnapshotReaders(JobBaseRecordRequest request, int splitCount) {
+        snapshotRequest = request;
+        ReaderGroup group = readerGroup(request, ReaderGroup.JOB_SNAPSHOT);
+        CdcResourceManager resources = Env.getCurrentEnv().getCdcResourceManager();
+        snapshotQuota = resources.newSnapshotQuota(request.getJobId(), group);
+        int readerSlots = snapshotQuota.tryReserveSlots(splitCount);
+        if (readerSlots == 0) {
+            throw quotaUnavailable(request, resources, group);
+        }
+        LOG.info(
+                "Snapshot task admitted, jobId={}, splits={}, readerSlots={}",
+                snapshotRequest.getJobId(),
+                splitCount,
+                readerSlots);
+        String jobId = snapshotRequest.getJobId();
+        snapshotPollExecutor =
+                Executors.newFixedThreadPool(
+                        readerSlots,
+                        runnable -> {
+                            Thread thread = new Thread(runnable, "snapshot-reader-" + jobId);
+                            thread.setDaemon(true);
+                            return thread;
+                        });
+        return snapshotQuota;
+    }
+
+    protected void shutdownSnapshotPollExecutor() {
+        if (snapshotQuota != null) {
+            snapshotQuota.close();
+            snapshotQuota = null;
+        }
+        if (snapshotPollExecutor != null) {
+            // Let queued submit operations finish their reader cleanup.
+            snapshotPollExecutor.shutdown();
+            snapshotPollExecutor = null;
+        }
+        snapshotRequest = null;
+        notifyAll();
+    }
+
+    private ReaderQuotaUnavailableException quotaUnavailable(
+            JobBaseRecordRequest request, CdcResourceManager resources, ReaderGroup group) {
+        return new ReaderQuotaUnavailableException(
+                request.getJobId(),
+                resources.getReaderReservationBytes(),
+                resources.getAvailableReaderBytes(group));
+    }
+
+    private ReaderGroup readerGroup(JobBaseRecordRequest request, ReaderGroup jobGroup) {
+        if (request instanceof FetchRecordRequest
+                && !ConfigUtil.isJobDrivenTvf(request.getJobId())) {
+            return ReaderGroup.STANDALONE_TVF;
+        }
+        return jobGroup;
+    }
+
     /** Keep the reader and deserializer on the same schema baseline. */
     public void setTableSchemas(Map<TableId, TableChanges.TableChange> tableSchemas) {
         this.tableSchemas = tableSchemas;
@@ -80,11 +166,7 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
         // backend to take over.
         LOG.info("Release source reader for job {}", jobConfig.getJobId());
         finishSplitRecords();
-        shutdownSnapshotPollExecutor();
     }
-
-    /** Stop the snapshot-phase poll thread pool; called when this reader instance is discarded. */
-    protected void shutdownSnapshotPollExecutor() {}
 
     /** Drop source-side owned resources. Returns false if cleanup is incomplete (retry later). */
     public boolean releaseSourceResources(JobBaseConfig jobConfig) {

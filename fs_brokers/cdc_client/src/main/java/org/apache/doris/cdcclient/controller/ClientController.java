@@ -138,6 +138,7 @@ public class ClientController {
     public Object close(@RequestBody JobBaseConfig jobConfig) {
         String jobId = jobConfig.getJobId();
         LOG.info("Closing job {}", jobId);
+        pipelineCoordinator.cancelTask(jobId, null);
         Env env = Env.getCurrentEnv();
         // Don't rebuild a reader to close it; an absent reader (owner BE gone) just needs its slot
         // dropped.
@@ -163,6 +164,7 @@ public class ClientController {
     public Object releaseReader(
             @PathVariable("taskId") String taskId, @RequestBody JobBaseConfig jobConfig) {
         LOG.info("Releasing reader (keep slot) for job {} task {}", jobConfig.getJobId(), taskId);
+        pipelineCoordinator.cancelTask(jobConfig.getJobId(), taskId);
         Env env = Env.getCurrentEnv();
         // Only the owning task may release; detach removes the context under the per-job lock so a
         // racing claim rebuilds a fresh reader, and a stale RPC is a no-op.

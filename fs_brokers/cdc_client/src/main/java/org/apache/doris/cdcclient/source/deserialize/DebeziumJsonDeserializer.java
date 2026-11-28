@@ -136,7 +136,7 @@ public class DebeziumJsonDeserializer
     }
 
     private List<String> deserializeDataChangeRecord(SourceRecord record) throws IOException {
-        List<String> rows = new ArrayList<>();
+        List<String> rows = new ArrayList<>(1);
         String tableName = extractTableName(record);
         Set<String> excludeColumns =
                 excludeColumnsCache.getOrDefault(tableName, Collections.emptySet());
@@ -239,10 +239,24 @@ public class DebeziumJsonDeserializer
                 case INT16:
                 case INT32:
                 case INT64:
+                    if (dbzObj instanceof Long) {
+                        return dbzObj;
+                    }
+                    if (dbzObj instanceof Integer
+                            || dbzObj instanceof Short
+                            || dbzObj instanceof Byte) {
+                        return ((Number) dbzObj).longValue();
+                    }
                     return Long.parseLong(dbzObj.toString());
                 case FLOAT32:
+                    if (dbzObj instanceof Float) {
+                        return dbzObj;
+                    }
                     return Float.parseFloat(dbzObj.toString());
                 case FLOAT64:
+                    if (dbzObj instanceof Double) {
+                        return dbzObj;
+                    }
                     return Double.parseDouble(dbzObj.toString());
                 case BOOLEAN:
                     return Boolean.parseBoolean(dbzObj.toString());
@@ -396,6 +410,9 @@ public class DebeziumJsonDeserializer
     }
 
     private Object convertDecimal(Object dbzObj, Schema schema) {
+        if (dbzObj instanceof BigDecimal) {
+            return dbzObj;
+        }
         BigDecimal bigDecimal;
         if (dbzObj instanceof byte[]) {
             // decimal.handling.mode=precise
@@ -421,7 +438,7 @@ public class DebeziumJsonDeserializer
     private Object convertToArray(Schema fieldSchema, Object dbzObj) {
         if (dbzObj instanceof List) {
             Schema elementSchema = fieldSchema.valueSchema();
-            List<Object> result = new ArrayList<>();
+            List<Object> result = new ArrayList<>(((List<?>) dbzObj).size());
             for (Object element : (List<?>) dbzObj) {
                 result.add(element == null ? null : convertInternal(elementSchema, element));
             }

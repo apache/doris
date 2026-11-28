@@ -18,12 +18,13 @@
 package org.apache.doris.cdcclient.sink;
 
 import java.util.LinkedList;
+import java.util.function.LongConsumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** buffer to queue. */
-public class BatchRecordBuffer {
+public class BatchRecordBuffer implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(BatchRecordBuffer.class);
     public static final String LINE_SEPARATOR = "\n";
     private String labelName;
@@ -31,34 +32,37 @@ public class BatchRecordBuffer {
     private byte[] lineDelimiter;
     private int numOfRecords = 0;
     private long bufferSizeBytes = 0;
-    private boolean loadBatchFirstRecord = true;
     private String database;
     private String table;
+    private final LongConsumer onBytesChanged;
 
     public BatchRecordBuffer() {
-        this.buffer = new LinkedList<>();
+        this(null, null, null);
     }
 
     public BatchRecordBuffer(String database, String table, byte[] lineDelimiter) {
-        super();
+        this(database, table, lineDelimiter, bytes -> {});
+    }
+
+    public BatchRecordBuffer(
+            String database, String table, byte[] lineDelimiter, LongConsumer onBytesChanged) {
         this.database = database;
         this.table = table;
         this.lineDelimiter = lineDelimiter;
         this.buffer = new LinkedList<>();
+        this.onBytesChanged = onBytesChanged;
     }
 
-    public int insert(byte[] record) {
-        int recordSize = record.length;
-        if (loadBatchFirstRecord) {
-            loadBatchFirstRecord = false;
-        } else if (lineDelimiter != null) {
+    public long insert(byte[] record) {
+        long recordSize = record.length;
+        if (!isEmpty() && lineDelimiter != null) {
             this.buffer.add(this.lineDelimiter);
-            setBufferSizeBytes(this.bufferSizeBytes + this.lineDelimiter.length);
             recordSize += this.lineDelimiter.length;
         }
         this.buffer.add(record);
-        setNumOfRecords(this.numOfRecords + 1);
-        setBufferSizeBytes(this.bufferSizeBytes + record.length);
+        numOfRecords++;
+        bufferSizeBytes += recordSize;
+        onBytesChanged.accept(recordSize);
         return recordSize;
     }
 
@@ -78,11 +82,42 @@ public class BatchRecordBuffer {
     }
 
     public void clear() {
+        long bytes = bufferSizeBytes;
+        clearRecords();
+        if (bytes != 0) {
+            onBytesChanged.accept(-bytes);
+        }
+    }
+
+    @Override
+    public void close() {
+        clear();
+    }
+
+    /** Transfer a batch from the same memory account without releasing its charge. */
+    void mergeFrom(BatchRecordBuffer source) {
+        if (source.isEmpty()) {
+            return;
+        }
+        int separatorBytes = 0;
+        if (!isEmpty() && lineDelimiter != null) {
+            buffer.add(lineDelimiter);
+            separatorBytes = lineDelimiter.length;
+        }
+        buffer.addAll(source.buffer);
+        numOfRecords += source.numOfRecords;
+        bufferSizeBytes += source.bufferSizeBytes + separatorBytes;
+        source.clearRecords();
+        if (separatorBytes != 0) {
+            onBytesChanged.accept(separatorBytes);
+        }
+    }
+
+    private void clearRecords() {
         this.buffer.clear();
         this.numOfRecords = 0;
         this.bufferSizeBytes = 0;
         this.labelName = null;
-        this.loadBatchFirstRecord = true;
     }
 
     public LinkedList<byte[]> getBuffer() {
@@ -101,20 +136,6 @@ public class BatchRecordBuffer {
      */
     public long getBufferSizeBytes() {
         return bufferSizeBytes;
-    }
-
-    /**
-     * @param numOfRecords Updates number of records (Usually by 1)
-     */
-    public void setNumOfRecords(int numOfRecords) {
-        this.numOfRecords = numOfRecords;
-    }
-
-    /**
-     * @param bufferSizeBytes Updates sum of size of records present in this buffer (Bytes)
-     */
-    public void setBufferSizeBytes(long bufferSizeBytes) {
-        this.bufferSizeBytes = bufferSizeBytes;
     }
 
     public String getDatabase() {

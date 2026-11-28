@@ -613,15 +613,14 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         try {
             if (sourceSplit instanceof StreamSplit) {
                 Offset offsetToCommit = ((StreamSplit) sourceSplit).getStartingOffset();
-                if (getCurrentFetchTask() != null
-                        && getCurrentFetchTask() instanceof PostgresStreamFetchTask) {
-                    ((PostgresStreamFetchTask) getCurrentFetchTask())
-                            .commitCurrentOffset(offsetToCommit);
+                FetchTask<SourceSplitBase> task = getCurrentFetchTask();
+                if (task instanceof PostgresStreamFetchTask) {
+                    ((PostgresStreamFetchTask) task).commitCurrentOffset(offsetToCommit);
                     LOG.info(
                             "Committing job {} postgres offset {} for {}",
                             jobId,
                             offsetToCommit,
-                            getCurrentFetchTask().getSplit());
+                            task.getSplit());
                 }
             }
         } catch (Exception e) {

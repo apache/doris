@@ -33,9 +33,13 @@ import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -128,6 +132,50 @@ class DebeziumJsonDeserializeRecordTest {
         JsonNode row = MAPPER.readTree(result.getRecords().get(0));
         assertFalse(row.has("name"));
         assertTrue(row.has("id"));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Envelope.Operation.class, names = {"READ", "CREATE", "UPDATE", "DELETE"})
+    void numericValues_preserveSerializedOutput(Envelope.Operation operation) throws Exception {
+        BigDecimal amount = new BigDecimal("12345678901234567890.12345678901234567800");
+        List<Double> numbers = Arrays.asList(Double.MIN_VALUE, Double.POSITIVE_INFINITY, null, -0.0d);
+        Schema numericSchema =
+                SchemaBuilder.struct()
+                        .name("t1.NumericValue")
+                        .field("single", Schema.FLOAT32_SCHEMA)
+                        .field("double", Schema.FLOAT64_SCHEMA)
+                        .field("amount", Decimal.builder(amount.scale()).build())
+                        .field("numbers", SchemaBuilder.array(Schema.OPTIONAL_FLOAT64_SCHEMA).build())
+                        .build();
+        Struct numericRow =
+                new Struct(numericSchema)
+                        .put("single", Float.NaN)
+                        .put("double", -0.0d)
+                        .put("amount", amount)
+                        .put("numbers", numbers);
+        Envelope numericEnvelope =
+                Envelope.defineSchema()
+                        .withName("t1.NumericEnvelope")
+                        .withRecord(numericSchema)
+                        .withSource(sourceSchema)
+                        .build();
+        Struct value =
+                new Struct(numericEnvelope.schema())
+                        .put(Envelope.FieldName.OPERATION, operation.code())
+                        .put(Envelope.FieldName.BEFORE, numericRow)
+                        .put(Envelope.FieldName.AFTER, numericRow)
+                        .put(Envelope.FieldName.SOURCE, source("t1"));
+        SourceRecord record = new SourceRecord(null, null, "t1", numericEnvelope.schema(), value);
+
+        DeserializeResult result = newDeserializer(Map.of()).deserialize(Map.of(), record);
+
+        Map<String, Object> expected = new HashMap<>();
+        expected.put("single", Float.NaN);
+        expected.put("double", -0.0d);
+        expected.put("amount", amount);
+        expected.put("numbers", numbers);
+        expected.put(DELETE_SIGN, operation == Envelope.Operation.DELETE ? 1 : 0);
+        assertEquals(List.of(MAPPER.writeValueAsString(expected)), result.getRecords());
     }
 
     @Test
