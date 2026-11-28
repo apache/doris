@@ -2170,6 +2170,13 @@ DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
 DEFINE_mInt64(ann_index_build_min_segment_rows, "0");
 DEFINE_Validator(ann_index_build_min_segment_rows,
                  [](const int64_t config) -> bool { return config >= 0; });
+// Opt in to empty arrays in ANN-indexed columns after upgrading all FEs and BEs. Empty rows have no
+// vector and retain their physical rowids. Once such data is written, keep this enabled for
+// subsequent index writes, including compaction, index rebuilds and Group Commit WAL replay.
+// Downgrading to a version without sparse ANN label support is unsupported. Readers do not
+// check this flag. Scalar distance evaluation returns NULL for empty arrays. ANN TopN ranks
+// indexed vectors only and does not pad LIMIT with empty rows for NULLS FIRST/LAST.
+DEFINE_mBool(enable_ann_index_empty_array, "false");
 
 DEFINE_mBool(enable_wal_tde, "false");
 

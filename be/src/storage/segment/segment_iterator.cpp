@@ -1105,8 +1105,28 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     VLOG_DEBUG << fmt::format("Try apply ann topn: {}", _ann_topn_runtime->debug_string());
     // AnnTopNRuntime keeps VSlotRef::column_id(), which is the read-schema ordinal.
     ColumnId src_cid = cast_set<ColumnId>(_ann_topn_runtime->get_src_column_idx());
+    // FAISS requires a non-empty query vector. NULL/[] query arguments still use
+    // scalar evaluation, which returns NULL distances.
+    if (_ann_topn_runtime->has_missing_query_vector()) {
+        _column_states[src_cid].need_read_data = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        return Status::OK();
+    }
     IndexIterator* ann_index_iterator = _index_iterators[src_cid].get();
     bool has_ann_index = _column_has_ann_index(src_cid);
+    if (has_ann_index) {
+        // Validate against index metadata before any scalar fallback. An all-empty
+        // segment has no non-empty data vector from which to infer the dimension.
+        auto reader = ann_index_iterator->get_reader(AnnIndexReaderType::ANN);
+        auto* ann_reader = dynamic_cast<AnnIndexReader*>(reader.get());
+        // A missing or mismatched reader cannot provide the required index dimension.
+        if (ann_reader == nullptr) {
+            return Status::InternalError(
+                    "Expected ANN index reader when validating query dimension, column id={}",
+                    src_cid);
+        }
+        RETURN_IF_ERROR(_ann_topn_runtime->validate_query_dimension(ann_reader->get_dimension()));
+    }
     bool has_common_expr_push_down = !_common_expr_ctxs_push_down.empty();
     bool has_predicate_column = std::ranges::any_of(
             _column_states, [](const auto& state) { return state.has_predicate(); });
@@ -1207,6 +1227,9 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 static_cast<int64_t>(load_costs_ms));
     }
 
+    // ANN TopN ranks indexed vectors only. For [vector, [], vector], it may return
+    // rows 0 and 2, but never pads LIMIT with row 1 for NULLS FIRST/LAST. This also
+    // keeps ANN enabled when empty placeholder rows are already masked by deletes.
     bool enable_ann_index_result_cache =
             !_opts.runtime_state ||
             !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||

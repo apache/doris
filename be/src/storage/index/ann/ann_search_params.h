@@ -168,14 +168,15 @@ struct AnnTopNParam {
 
 struct AnnRangeSearchParams {
     bool is_le_or_lt = true;
+    bool include_boundary = false;
     const float* query_value = nullptr;
     float radius = -1;
     roaring::Roaring* roaring; // roaring from segment_iterator
     bool enable_result_cache = true;
     std::string to_string() const {
         DCHECK(roaring != nullptr);
-        return fmt::format("is_le_or_lt: {}, radius: {}, input rows {}", is_le_or_lt, radius,
-                           roaring->cardinality());
+        return fmt::format("is_le_or_lt: {}, include_boundary: {}, radius: {}, input rows {}",
+                           is_le_or_lt, include_boundary, radius, roaring->cardinality());
     }
     virtual ~AnnRangeSearchParams() = default;
 };
@@ -219,6 +220,7 @@ struct IndexSearchResult {
 struct IndexSearchParameters {
     roaring::Roaring* roaring = nullptr;
     bool is_le_or_lt = true;
+    bool include_boundary = false;
     size_t rows_of_segment = 0;
     // Caller-owned IOContext, valid for the duration of the search.
     // Propagated via thread_local to CachedRandomAccessReader so that

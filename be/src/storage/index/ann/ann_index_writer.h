@@ -21,7 +21,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <roaring/roaring.hh>
 #include <string>
 
 #include "core/pod_array.h"
@@ -71,7 +70,14 @@ private:
     // The build index is owned by this writer and released when the segment is finished.
     std::shared_ptr<VectorIndex> _vector_index;
     PODArray<float> _buffered_vectors;
-    int64_t _total_rows = 0;
+    // Data-file row IDs for non-empty vectors, populated when an empty array creates a gap.
+    // For [vector, [], vector]: data rows = 3, index rows = 2, row IDs = [0, 2].
+    PODArray<Int64> _data_row_ids_in_index;
+    bool _has_empty_arrays = false;
+    // Rows received for this segment's data file, including empty arrays.
+    int64_t _num_rows_in_data_file = 0;
+    // Non-empty vector rows to write to this segment's ANN index file.
+    int64_t _num_rows_in_index_file = 0;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<AnnIndexSink> _sink;

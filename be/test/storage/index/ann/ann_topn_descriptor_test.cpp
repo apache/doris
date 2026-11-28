@@ -174,12 +174,17 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     size_t rows_of_segment = 10;
     st = predicate->evaluate_vector_ann_search(_ann_index_iterator.get(), &roaring, rows_of_segment,
                                                false, _result_column, row_ids, ann_index_stats);
-    ColumnFloat32* result_column_float = assert_cast<ColumnFloat32*>(_result_column.get());
+    ASSERT_TRUE(st.ok());
+    const auto* nullable_column = check_and_get_column<ColumnNullable>(_result_column.get());
+    ASSERT_NE(nullable_column, nullptr);
+    const auto* result_column_float =
+            check_and_get_column<ColumnFloat32>(nullable_column->get_nested_column());
+    ASSERT_NE(result_column_float, nullptr);
+    EXPECT_EQ(nullable_column->get_null_map_data(), NullMap(10, 0));
     for (size_t i = 0; i < query_vector->size(); ++i) {
         EXPECT_EQ(result_column_float->get_data()[i], (*query_vector)[i]);
     }
 
-    ASSERT_TRUE(st.ok());
     ASSERT_EQ(row_ids->size(), 10);
 }
 
