@@ -24,8 +24,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.Statement;
 import java.sql.Types;
 import java.util.Locale;
 import java.util.Map;
@@ -236,15 +236,17 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
     @Override
     public long getRowCount(String dbName, String tableName) {
         String sql = "SELECT sum(rows) FROM sys.partitions "
-                + "WHERE object_id = (SELECT object_id('" + dbName + "." + tableName + "')) "
+                + "WHERE object_id = (SELECT object_id(?)) "
                 + "AND index_id IN (0, 1)";
         try (Connection conn = dataSource.getConnection();
-                Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery(sql)) {
-            if (rs.next()) {
-                long count = rs.getLong(1);
-                if (!rs.wasNull() && count >= 0) {
-                    return count;
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, dbName + "." + tableName);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long count = rs.getLong(1);
+                    if (!rs.wasNull() && count >= 0) {
+                        return count;
+                    }
                 }
             }
         } catch (Exception e) {

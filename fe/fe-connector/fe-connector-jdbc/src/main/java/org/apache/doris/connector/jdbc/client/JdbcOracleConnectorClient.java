@@ -24,9 +24,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -72,14 +72,18 @@ public class JdbcOracleConnectorClient extends JdbcConnectorClient {
     }
 
     @Override
-    protected String getAdditionalTablesQuery(String remoteDbName, String remoteTableName, String[] tableTypes) {
-        StringBuilder sb = new StringBuilder(
-                "SELECT SYNONYM_NAME AS TABLE_NAME FROM ALL_SYNONYMS WHERE OWNER = '");
-        sb.append(remoteDbName).append("'");
+    protected PreparedStatement prepareAdditionalTablesQuery(Connection conn, String remoteDbName,
+            String remoteTableName, String[] tableTypes) throws SQLException {
+        String sql = "SELECT SYNONYM_NAME AS TABLE_NAME FROM ALL_SYNONYMS WHERE OWNER = ?";
         if (remoteTableName != null) {
-            sb.append(" AND SYNONYM_NAME = '").append(remoteTableName).append("'");
+            sql += " AND SYNONYM_NAME = ?";
         }
-        return sb.toString();
+        PreparedStatement stmt = conn.prepareStatement(sql);
+        stmt.setString(1, remoteDbName);
+        if (remoteTableName != null) {
+            stmt.setString(2, remoteTableName);
+        }
+        return stmt;
     }
 
     @Override
@@ -103,14 +107,15 @@ public class JdbcOracleConnectorClient extends JdbcConnectorClient {
      */
     private String[] resolveSynonym(String schema, String tableName) {
         Connection conn = null;
-        Statement stmt = null;
+        PreparedStatement stmt = null;
         ResultSet rs = null;
         try {
             conn = getConnection();
-            stmt = conn.createStatement();
-            String sql = "SELECT TABLE_OWNER, TABLE_NAME FROM ALL_SYNONYMS WHERE OWNER = '"
-                    + schema + "' AND SYNONYM_NAME = '" + tableName + "'";
-            rs = stmt.executeQuery(sql);
+            stmt = conn.prepareStatement(
+                    "SELECT TABLE_OWNER, TABLE_NAME FROM ALL_SYNONYMS WHERE OWNER = ? AND SYNONYM_NAME = ?");
+            stmt.setString(1, schema);
+            stmt.setString(2, tableName);
+            rs = stmt.executeQuery();
             if (rs.next()) {
                 return new String[] {rs.getString("TABLE_OWNER"), rs.getString("TABLE_NAME")};
             }
@@ -198,15 +203,17 @@ public class JdbcOracleConnectorClient extends JdbcConnectorClient {
 
     @Override
     public long getRowCount(String dbName, String tableName) {
-        String sql = "SELECT NUM_ROWS FROM ALL_TABLES WHERE "
-                + "OWNER = '" + dbName + "' AND TABLE_NAME = '" + tableName + "'";
         try (Connection conn = dataSource.getConnection();
-                Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery(sql)) {
-            if (rs.next()) {
-                long count = rs.getLong(1);
-                if (!rs.wasNull() && count >= 0) {
-                    return count;
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT NUM_ROWS FROM ALL_TABLES WHERE OWNER = ? AND TABLE_NAME = ?")) {
+            stmt.setString(1, dbName);
+            stmt.setString(2, tableName);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long count = rs.getLong(1);
+                    if (!rs.wasNull() && count >= 0) {
+                        return count;
+                    }
                 }
             }
         } catch (Exception e) {

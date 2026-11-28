@@ -577,7 +577,7 @@ public abstract class JdbcConnectorClient implements Closeable {
             String[] tableTypes, Consumer<ResultSet> consumer) {
         Connection conn = null;
         ResultSet standardRs = null;
-        Statement stmt = null;
+        PreparedStatement stmt = null;
         ResultSet customRs = null;
         try {
             conn = getConnection();
@@ -586,10 +586,9 @@ public abstract class JdbcConnectorClient implements Closeable {
             String escapedTableName = escapeSearchPattern(databaseMetaData, remoteTableName);
             standardRs = databaseMetaData.getTables(cat, remoteDbName, escapedTableName, tableTypes);
             consumer.accept(standardRs);
-            String additionalQuery = getAdditionalTablesQuery(remoteDbName, remoteTableName, tableTypes);
-            if (additionalQuery != null && !additionalQuery.trim().isEmpty()) {
-                stmt = conn.createStatement();
-                customRs = stmt.executeQuery(additionalQuery);
+            stmt = prepareAdditionalTablesQuery(conn, remoteDbName, remoteTableName, tableTypes);
+            if (stmt != null) {
+                customRs = stmt.executeQuery();
                 consumer.accept(customRs);
             }
         } catch (SQLException e) {
@@ -640,7 +639,14 @@ public abstract class JdbcConnectorClient implements Closeable {
         }
     }
 
-    protected String getAdditionalTablesQuery(String remoteDbName, String remoteTableName, String[] tableTypes) {
+    /**
+     * Prepares a source-specific query whose rows {@link #processTable} passes to its consumer after
+     * the standard {@code getTables()} rows, or returns null when the source has none.
+     *
+     * <p>Bind the names as parameters; never concatenate them into the SQL text.</p>
+     */
+    protected PreparedStatement prepareAdditionalTablesQuery(Connection conn, String remoteDbName,
+            String remoteTableName, String[] tableTypes) throws SQLException {
         return null;
     }
 
