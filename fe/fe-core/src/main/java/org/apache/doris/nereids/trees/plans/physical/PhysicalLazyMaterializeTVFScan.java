@@ -59,6 +59,11 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
                 copiedScan, rowId, lazySlots));
     }
 
+    /** The columns fetched by row id after the TopN instead of being read by this scan. */
+    public List<Slot> getLazySlots() {
+        return lazySlots;
+    }
+
     @Override
     public List<Slot> computeOutput() {
         if (output == null) {

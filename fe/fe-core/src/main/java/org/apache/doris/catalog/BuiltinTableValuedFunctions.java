@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Changelog;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
+import org.apache.doris.nereids.trees.expressions.functions.table.FullTextSearch;
 import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
+import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 
 import com.google.common.collect.ImmutableList;
 
@@ -78,7 +80,9 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(ParquetFileMetadata.class, "parquet_file_metadata"),
             tableValued(ParquetKvMetadata.class, "parquet_kv_metadata"),
             tableValued(ParquetBloomProbe.class, "parquet_bloom_probe"),
-            tableValued(CdcStream.class, "cdc_stream")
+            tableValued(CdcStream.class, "cdc_stream"),
+            tableValued(VectorSearch.class, "vector_search"),
+            tableValued(FullTextSearch.class, "full_text_search")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

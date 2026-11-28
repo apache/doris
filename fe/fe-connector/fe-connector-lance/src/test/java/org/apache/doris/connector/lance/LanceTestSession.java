@@ -34,6 +34,7 @@ final class LanceTestSession implements ConnectorSession {
     private final boolean liveStatement;
     private final Map<String, Object> memo = new HashMap<>();
     private final Map<String, String> sessionProperties = new HashMap<>();
+    private int beExecVersion = Integer.MAX_VALUE;
     private int loads;
     private boolean loading;
 
@@ -58,6 +59,11 @@ final class LanceTestSession implements ConnectorSession {
     /** Sets a session variable as the engine hands visible ones to connectors. */
     void setSessionProperty(String name, String value) {
         sessionProperties.put(name, value);
+    }
+
+    /** Sets the statement's BE exec version, which the engine takes from the oldest backend's. */
+    void setBeExecVersion(int version) {
+        beExecVersion = version;
     }
 
     /** Puts a value where a loader would have, as if this statement had already read it. */
@@ -142,6 +148,11 @@ final class LanceTestSession implements ConnectorSession {
     @Override
     public Map<String, String> getSessionProperties() {
         return Collections.unmodifiableMap(sessionProperties);
+    }
+
+    @Override
+    public int getBeExecVersion() {
+        return beExecVersion;
     }
 
     @Override

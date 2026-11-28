@@ -72,10 +72,10 @@ public class PlanPostProcessors {
          1. LazyMaterializeTopN should be applied before MergeProjectPostProcessor
          2. LazyMaterializeTopN should be applied after RecomputeLogicalPropertiesProcessor
          PhysicalLazyMaterialize.materializedSlots should be subsequence of topN.getOutput().
+         3. LazyMaterializeTopN runs even when topn_lazy_materialization_threshold disables it for tables: for a
+         TopN over a search table function, the search's connector decides whether its columns are fetched late.
          */
-        if (cascadesContext.getConnectContext().getSessionVariable().enableTopnLazyMaterialization()) {
-            builder.add(new LazyMaterializeTopN());
-        }
+        builder.add(new LazyMaterializeTopN());
         builder.add(new MergeProjectPostProcessor());
 
         if (cascadesContext.getConnectContext().getSessionVariable().enableAggregateCse) {

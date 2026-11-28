@@ -86,13 +86,17 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         if (hasMaterialized) {
             return topN;
         }
-        if (SessionVariable.getTopNLazyMaterializationThreshold() < topN.getLimit()) {
+        // The threshold decides for the columns of tables, and a threshold of 0 or less turns it off. The columns of
+        // a search table function below this TopN are fetched late when the search's connector allowed it.
+        int threshold = SessionVariable.getTopNLazyMaterializationThreshold();
+        boolean thresholdAdmitsTopN = threshold > 0 && threshold >= topN.getLimit();
+        if (!thresholdAdmitsTopN && !topN.anyMatch(MaterializeProbeVisitor::isExternalSearch)) {
             return topN;
         }
         try {
             List<Slot> userVisibleOutput = ImmutableList.copyOf(topN.getOutput());
             List<Slot> effectiveOutput = ImmutableList.copyOf(topN.getOutput());
-            Plan result = doComputeTopN(topN, ctx, effectiveOutput);
+            Plan result = doComputeTopN(topN, ctx, effectiveOutput, thresholdAdmitsTopN);
             if (result == topN) {
                 return topN;
             }
@@ -104,7 +108,8 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         }
     }
 
-    private Plan doComputeTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx, List<Slot> effectiveOutput) {
+    private Plan doComputeTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx, List<Slot> effectiveOutput,
+            boolean thresholdAdmitsTopN) {
         Map<Slot, MaterializeSource> materializeMap = new HashMap<>();
         List<Slot> materializedSlots = new ArrayList<>();
         Set<Slot> requiredMaterializedSlots = new HashSet<>();
@@ -128,7 +133,9 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
          */
         for (Slot slot : effectiveOutput) {
             Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot,
-                    requiredMaterializedSlots);
+                    requiredMaterializedSlots)
+                    .filter(candidate -> thresholdAdmitsTopN
+                            || MaterializeProbeVisitor.isExternalSearch(candidate.relation));
             if (source.isPresent()) {
                 SlotReference baseSlot = source.get().baseSlot;
                 if (source.get().baseSlot.hasSubColPath()

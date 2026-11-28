@@ -30,13 +30,20 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TLanceScanParams;
 
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -61,6 +68,11 @@ import java.util.function.Supplier;
  * filter (the engine then drops them from the Doris residuals); a LIMIT on every range once every conjunct is
  * pushed; COUNT(*) without a filter, from the manifest's row counts; and, for a pushed positive predicate that
  * one BTREE / BITMAP / LABEL_LIST index can drive, one range per index segment.
+ *
+ * <p>A {@code vector_search} / {@code full_text_search} over a catalog table scans a {@link LanceSearchTableHandle}:
+ * every range searches its own fragments or index segment for its best candidates
+ * ({@link LanceScanPlanner#planSearch}), with the search request in {@code TLanceScanParams}; the WHERE written on
+ * the function is not pushed, as it filters those candidates in Doris before the engine merges them.
  *
  * <p>The scan properties (and so EXPLAIN) and the range list are planned separately from the same inputs: the
  * engine memoizes this provider by table handle, which the snapshot pin replaces, so no state is kept here.
@@ -88,6 +100,8 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
     /** The serialized Substrait filter, base64; absent when nothing is pushed. */
     static final String PROP_SUBSTRAIT_FILTER = "lance.substrait_filter";
     static final String PROP_PUSHDOWN_PREDICATE = "lance.pushdown_predicate";
+    /** A search's per-range request ({@link LanceSearchTableHandle#splitRequest()}), thrift binary in base64. */
+    static final String PROP_SEARCH_REQUEST = "lance.search_request";
 
     private final ScanSource source;
     private final Function<Schema, LancePredicateConverter> converters;
@@ -149,6 +163,9 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
 
     private List<ConnectorScanRange> planRanges(ConnectorSession session, ConnectorScanRequest request,
             ConnectorTableHandle handle, LanceTableMetadata metadata, LanceMetadataMetrics metrics) {
+        if (handle instanceof LanceSearchTableHandle) {
+            return planSearch(session, (LanceSearchTableHandle) handle, metadata, metrics).ranges();
+        }
         List<ConnectorExpression> conjuncts = LancePredicateConverter.conjuncts(request.getFilter());
         // Any filter, pushed or not, makes the version's row count larger than the result.
         if (request.isCountPushdown() && conjuncts.isEmpty()) {
@@ -165,7 +182,7 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * The scan's properties, the pushed Substrait filter among them; every conjunct it pushes is reported so,
-     * and the engine drops those from the Doris residuals.
+     * and the engine drops those from the Doris residuals. A search pushes none.
      */
     @Override
     public ScanNodePropertiesResult getScanNodePropertiesResult(ConnectorSession session,
@@ -179,11 +196,23 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
                 (key, value) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + key, value));
         source.storageOptions(tableHandle, metadata).forEach(
                 (key, value) -> props.put(PROP_STORAGE_OPTION_PREFIX + key, value));
-        if (projectsCurrentReaderType(metadata, columns)) {
+        // A column read by row id after a search's merge is read by the backend that ran the search too.
+        Collection<String> readColumns = columnNames(columns);
+        if (tableHandle instanceof LanceSearchTableHandle) {
+            readColumns.addAll(((LanceSearchTableHandle) tableHandle).getLazyColumns());
+        }
+        if (projectsCurrentReaderType(metadata, readColumns)) {
             props.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, ADDITIONAL_TYPES_SEMANTICS);
         }
         props.put(PROP_CATALOG_TYPE, source.catalogType());
         props.put(PROP_VERSION, String.valueOf(metadata.getVersion()));
+        if (tableHandle instanceof LanceSearchTableHandle) {
+            LanceSearchTableHandle search = (LanceSearchTableHandle) tableHandle;
+            props.put(PROP_SEARCH_REQUEST, encodeSearchRequest(search.splitRequest()));
+            planSearch(session, search, metadata, metrics).addExplainProperties(props, search.getRequest());
+            // The WHERE above a search filters its candidates in Doris, after the search and before the merge.
+            return ScanNodePropertiesResult.of(props);
+        }
         props.put(PROP_FRAGMENTS, String.valueOf(metadata.getFragments().size()));
 
         LancePredicateConverter converter = converters.apply(metadata.getSchema());
@@ -198,7 +227,10 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
         return ScanNodePropertiesResult.withPushdownTracking(props, pushdown.getNotPushedIndices());
     }
 
-    /** Sets the options BE opens the dataset with and the pushed filter, once for the whole scan. */
+    /**
+     * Sets the options BE opens the dataset with, and the pushed filter or the search request, once for the whole
+     * scan.
+     */
     @Override
     public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
         Map<String, String> storageOptions = new HashMap<>();
@@ -208,7 +240,8 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         String substraitFilter = nodeProperties.get(PROP_SUBSTRAIT_FILTER);
-        if (storageOptions.isEmpty() && substraitFilter == null) {
+        String searchRequest = nodeProperties.get(PROP_SEARCH_REQUEST);
+        if (storageOptions.isEmpty() && substraitFilter == null && searchRequest == null) {
             return;
         }
         TLanceScanParams lanceScanParams = new TLanceScanParams();
@@ -218,12 +251,22 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
         if (substraitFilter != null) {
             lanceScanParams.setLanceSubstraitFilter(Base64.getDecoder().decode(substraitFilter));
         }
+        if (searchRequest != null) {
+            lanceScanParams.setExternalSearchRequest(decodeSearchRequest(searchRequest));
+        }
         params.setLanceScanParams(lanceScanParams);
     }
 
-    /** The snapshot a scan reads, how it was split and what was pushed; the storage options are never printed. */
+    /**
+     * The snapshot a scan reads, how it was split and what was pushed, or what a search searches; the storage
+     * options, the query vector or text and the search filter are never printed.
+     */
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> nodeProperties) {
+        if (LanceSearchPlan.isSearch(nodeProperties)) {
+            LanceSearchPlan.appendExplain(output, prefix, nodeProperties, nodeProperties.get(PROP_VERSION));
+            return;
+        }
         output.append(prefix).append("lanceCatalogType=").append(nodeProperties.get(PROP_CATALOG_TYPE))
                 .append("\n");
         output.append(prefix).append("lanceVersion=").append(nodeProperties.get(PROP_VERSION)).append("\n");
@@ -248,21 +291,53 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
                 () -> source.indexMetadata(session, handle, metadata, metrics));
     }
 
+    private LanceSearchPlan planSearch(ConnectorSession session, LanceSearchTableHandle search,
+            LanceTableMetadata metadata, LanceMetadataMetrics metrics) {
+        return LanceScanPlanner.planSearch(metadata, search,
+                () -> source.indexMetadata(session, search, metadata, metrics));
+    }
+
+    static String encodeSearchRequest(TExternalSearchRequest request) {
+        try {
+            byte[] bytes = new TSerializer(new TBinaryProtocol.Factory()).serialize(request);
+            return Base64.getEncoder().encodeToString(bytes);
+        } catch (TException e) {
+            throw new IllegalStateException("Cannot serialize a Lance search request", e);
+        }
+    }
+
+    static TExternalSearchRequest decodeSearchRequest(String encoded) {
+        TExternalSearchRequest request = new TExternalSearchRequest();
+        try {
+            new TDeserializer(new TBinaryProtocol.Factory()).deserialize(request, Base64.getDecoder().decode(encoded));
+        } catch (TException e) {
+            throw new IllegalStateException("Cannot deserialize a Lance search request", e);
+        }
+        return request;
+    }
+
     private static int fragmentsPerSplit(ConnectorSession session) {
         String value = session.getSessionProperties().get(SESSION_FRAGMENTS_PER_SPLIT);
         return value == null || value.isEmpty() ? 0 : Integer.parseInt(value.trim());
     }
 
-    /**
-     * Whether a projected column needs the BE Lance reader that came with the additional types; see
-     * {@link LanceTypeMapping#requiresCurrentBeReader}. Only the projected columns count: an unread column
-     * of such a type does not keep an older backend from serving the scan.
-     */
-    private static boolean projectsCurrentReaderType(LanceTableMetadata metadata,
-            List<ConnectorColumnHandle> columns) {
-        Set<String> projected = new HashSet<>();
+    private static Collection<String> columnNames(List<ConnectorColumnHandle> columns) {
+        List<String> names = new ArrayList<>(columns.size());
         for (ConnectorColumnHandle column : columns) {
-            projected.add(((NamedColumnHandle) column).getName().toLowerCase(Locale.ROOT));
+            names.add(((NamedColumnHandle) column).getName());
+        }
+        return names;
+    }
+
+    /**
+     * Whether a column the scan reads needs the BE Lance reader that came with the additional types; see
+     * {@link LanceTypeMapping#requiresCurrentBeReader}. Only the columns read count: an unread column of such a
+     * type does not keep an older backend from serving the scan.
+     */
+    private static boolean projectsCurrentReaderType(LanceTableMetadata metadata, Collection<String> columns) {
+        Set<String> projected = new HashSet<>();
+        for (String column : columns) {
+            projected.add(column.toLowerCase(Locale.ROOT));
         }
         for (Field field : metadata.getSchema().getFields()) {
             if (projected.contains(field.getName().toLowerCase(Locale.ROOT))
@@ -286,7 +361,7 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
         LanceTableMetadata metadata(ConnectorSession session, ConnectorTableHandle handle,
                 LanceMetadataMetrics metrics);
 
-        /** The index metadata of that version, read only for a scan with a pushed filter an index may serve. */
+        /** The index metadata of that version, read only when a pushed filter or a search may use an index. */
         LanceIndexMetadata indexMetadata(ConnectorSession session, ConnectorTableHandle handle,
                 LanceTableMetadata metadata, LanceMetadataMetrics metrics);
 
@@ -362,9 +437,13 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
             LanceMetadataMetrics.publishScan(session, table.getDbName(), table.getTableName(), metrics);
         }
 
+        /** The table a handle reads: the handle itself, or the table a search searches. */
         private static LanceTableHandle lanceHandle(ConnectorTableHandle handle) {
             if (handle instanceof LanceTableHandle) {
                 return (LanceTableHandle) handle;
+            }
+            if (handle instanceof LanceSearchTableHandle) {
+                return ((LanceSearchTableHandle) handle).getTable();
             }
             throw new DorisConnectorException("A lance catalog cannot scan through a "
                     + handle.getClass().getSimpleName() + "; only its own tables are readable.");

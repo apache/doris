@@ -7,6 +7,7 @@ applyProjection(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris
 applyRewriteFileScope(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Set)
 applySnapshot(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot)
 applyTopnLazyMaterialization(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)
+applyTopnLazyMaterialization(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List)
 beginQuerySnapshot(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)
 beginTransaction(org.apache.doris.connector.spi.ConnectorSession)
 beginTransaction(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)

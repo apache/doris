@@ -14,17 +14,23 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Build the Lance Directory catalog of the pushdown suites with lance_fixture_requirements.txt.
+"""Build the Lance Directory catalog of the Lance suites with lance_fixture_requirements.txt.
 
 The standard MinIO mirror publishes the catalog root at warehouse/lance. This writes the
-__manifest and one new table into a root that already holds the committed all_types.lance and
-the committed vs_ivf_pq_f32 dataset:
+__manifest of a root that already holds the committed datasets, registering each one at its
+committed location, and creates the one table that the root may not hold yet:
 
   all_types                 registered at the root, at all_types.lance
-  doris.vs_ivf_pq_f32       registered at its committed location; two 512-row fragments that
-                            test_lance_fragment_grouping groups
-  doris.predicate_pushdown  created here with the rows of the scalar pushdown suites, written in
-                            two appends so that the table has two fragments
+  doris.vs_ivf_pq_f32       two 512-row fragments that test_lance_fragment_grouping groups
+  doris.vs_ivf_flat_f32     the vector and full-text tables of the search suites, built on
+  doris.full_text_search    branch-4.2 by lance_build_preinstalled_catalog.py and committed
+  doris.full_text_search_partial  unchanged
+  doris.predicate_pushdown  the rows of the scalar pushdown suites, written in two appends so that
+                            the table has two fragments; created here when the root does not hold
+                            a <prefix>_doris$predicate_pushdown directory, registered otherwise
+
+To register a newly committed dataset, add it to COMMITTED_TABLES, delete __manifest and run this
+again: every committed dataset keeps its files and its location.
 """
 
 import argparse
@@ -50,7 +56,14 @@ MANIFEST_DIR = "__manifest"
 ALL_TYPES_DIR = "all_types.lance"
 NAMESPACE = "doris"
 VECTOR_TABLE = "vs_ivf_pq_f32"
-VECTOR_DIR = "b3c9ce40_doris$vs_ivf_pq_f32"
+# The tables of the doris namespace that are committed with the fixture, by the directory that
+# lance-namespace named when it created them.
+COMMITTED_TABLES = {
+    VECTOR_TABLE: "b3c9ce40_doris$vs_ivf_pq_f32",
+    "vs_ivf_flat_f32": "57b2c9e6_doris$vs_ivf_flat_f32",
+    "full_text_search": "14d4e11d_doris$full_text_search",
+    "full_text_search_partial": "d9b832a2_doris$full_text_search_partial",
+}
 TABLE = "predicate_pushdown"
 
 SCHEMA = pa.schema([
@@ -133,17 +146,35 @@ def compact_manifest(root: Path) -> None:
     hint.write_text(f'{{"version":{manifest.version}}}')
 
 
+def committed_table_dir(root: Path):
+    # lance-namespace hashes a random prefix into the directory name of a table it creates.
+    found = sorted(path.name for path in root.glob(f"*_{NAMESPACE}${TABLE}") if path.is_dir())
+    assert len(found) <= 1, found
+    return found[0] if found else None
+
+
 def build(root: Path) -> None:
     check_pinned_writer()
     if (root / MANIFEST_DIR).exists():
         raise FileExistsError(root / MANIFEST_DIR)
-    for committed in (ALL_TYPES_DIR, VECTOR_DIR):
+    for committed in (ALL_TYPES_DIR, *COMMITTED_TABLES.values()):
         if not (root / committed).is_dir():
             raise FileNotFoundError(root / committed)
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     namespace.register_table(RegisterTableRequest(id=["all_types"], location=ALL_TYPES_DIR))
     namespace.create_namespace(CreateNamespaceRequest(id=[NAMESPACE]))
-    namespace.register_table(RegisterTableRequest(id=[NAMESPACE, VECTOR_TABLE], location=VECTOR_DIR))
+    for name, location in COMMITTED_TABLES.items():
+        namespace.register_table(RegisterTableRequest(id=[NAMESPACE, name], location=location))
+    table_dir = committed_table_dir(root)
+    if table_dir is not None:
+        namespace.register_table(RegisterTableRequest(id=[NAMESPACE, TABLE], location=table_dir))
+    else:
+        create_table(namespace)
+    compact_manifest(root)
+    check(root)
+
+
+def create_table(namespace) -> None:
     rows = table()
     buffer = io.BytesIO()
     with ipc.new_stream(buffer, SCHEMA) as writer:
@@ -151,8 +182,6 @@ def build(root: Path) -> None:
     response = namespace.create_table(CreateTableRequest(id=[NAMESPACE, TABLE]), buffer.getvalue())
     # The namespace hashes a random prefix into the directory name; use the location it returns.
     lance.write_dataset(rows.slice(FIRST_APPEND_ROWS), response.location, mode="append")
-    compact_manifest(root)
-    check(root)
 
 
 def check(root: Path) -> None:
@@ -160,8 +189,13 @@ def check(root: Path) -> None:
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     assert "all_types" in namespace.list_tables(ListTablesRequest(id=[])).tables
     assert sorted(namespace.list_tables(ListTablesRequest(id=[NAMESPACE])).tables) == sorted(
-        [TABLE, VECTOR_TABLE])
+        [TABLE, *COMMITTED_TABLES])
+    for name, committed in COMMITTED_TABLES.items():
+        registered = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, name])).location
+        assert Path(registered).name == committed, (name, registered)
+        assert lance.dataset(registered).count_rows() > 0, name
     location = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, TABLE])).location
+    assert Path(location).name == committed_table_dir(root), location
     dataset = lance.dataset(location)
     assert dataset.schema.remove_metadata() == SCHEMA, dataset.schema
     assert dataset.to_table().to_pylist() == table().to_pylist()

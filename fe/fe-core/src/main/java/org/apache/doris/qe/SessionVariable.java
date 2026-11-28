@@ -3177,6 +3177,9 @@ public class SessionVariable implements Serializable, Writable {
     /** Read by the lance connector, which matches this name byte for byte; it must stay visible. */
     public static final String LANCE_FRAGMENTS_PER_SPLIT = "lance_fragments_per_split";
 
+    /** Read by the lance connector, which matches this name byte for byte; it must stay visible. */
+    public static final String ENABLE_LANCE_LAZY_MATERIALIZATION = "enable_lance_lazy_materialization";
+
     @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,
             checker = "checkFlussUnionReadMode",
             options = {"", "auto", "required", "disabled"},
@@ -3193,6 +3196,12 @@ public class SessionVariable implements Serializable, Writable {
                     + "a positive value groups that many fragments per split, bypassing scalar index segment "
                     + "scans. Does not affect vector or full-text searches")
     public int lanceFragmentsPerSplit = 0;
+
+    @VarAttrDef.VarAttr(name = ENABLE_LANCE_LAZY_MATERIALIZATION, needForward = true,
+            description = "Whether Lance vector_search and full_text_search read the columns that only the result "
+                    + "needs after merging the candidates, by row id, for the rows that survive the merge. "
+                    + "Enabled by default and not limited by topn_lazy_materialization_threshold")
+    public boolean enableLanceLazyMaterialization = true;
 
     @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
             description = "The minimum memory required to be used by an operator, if not meet, the operator will not "
