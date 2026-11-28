@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
+import org.apache.doris.qe.QueryAuditPolicy;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -266,14 +267,7 @@ public class Log4jConfig extends XmlConfiguration {
             newXmlConfTemplate = newXmlConfTemplate.replaceAll("Root", "AsyncRoot");
         }
 
-        if (Config.enable_file_logger) {
-            newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_FILE_APPENDER_PLACEHOLDER,
-                    "<AppenderRef ref=\"" + RUNTIME_LOG_FILE_APPENDER + "\"/>\n");
-            newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_WARN_FILE_APPENDER_PLACEHOLDER,
-                    "<AppenderRef ref=\"" + RUNTIME_LOG_WARN_FILE_APPENDER + "\" level=\"WARN\"/>\n");
-            newXmlConfTemplate = newXmlConfTemplate.replaceAll(AUDIT_FILE_LOGGER_PLACEHOLDER,
-                    "<AppenderRef ref=\"" + AUDIT_LOG_FILE_APPENDER + "\"/>\n");
-        }
+        newXmlConfTemplate = addFileAppenderReferences(newXmlConfTemplate);
 
         if (foreground) {
             newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_MARKER_PLACEHOLDER, RUNTIME_LOG_MARKER);
@@ -331,6 +325,20 @@ public class Log4jConfig extends XmlConfiguration {
         }
 
         redirectStd();
+    }
+
+    static String addFileAppenderReferences(String xml) {
+        if (Config.enable_file_logger) {
+            xml = xml.replace(RUNTIME_LOG_FILE_APPENDER_PLACEHOLDER,
+                    "<AppenderRef ref=\"" + RUNTIME_LOG_FILE_APPENDER + "\"/>\n");
+            xml = xml.replace(RUNTIME_LOG_WARN_FILE_APPENDER_PLACEHOLDER,
+                    "<AppenderRef ref=\"" + RUNTIME_LOG_WARN_FILE_APPENDER + "\" level=\"WARN\"/>\n");
+        }
+        if (Config.enable_file_logger || QueryAuditPolicy.isAlwaysOn()) {
+            xml = xml.replace(AUDIT_FILE_LOGGER_PLACEHOLDER,
+                    "<AppenderRef ref=\"" + AUDIT_LOG_FILE_APPENDER + "\"/>\n");
+        }
+        return xml;
     }
 
     private static void redirectStd() {

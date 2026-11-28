@@ -57,6 +57,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -68,6 +69,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 
 /**
  * Process one mysql connection, receive one packet, process, send one packet.
@@ -157,11 +159,13 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         MysqlProtocolAdapter.of(ctx).beginPreparedExecute(prepCtx);
         int paramCount = prepareCommand.placeholderCount();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
-        // null bitmap
-        String stmtStr = "";
+        String stmtStr = null;
         try {
             if (prepCtx.getLongDataError() != null) {
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, prepCtx.getLongDataError());
+                if (QueryAuditPolicy.isAlwaysOn()) {
+                    auditExecute(null, prepCtx);
+                }
                 return;
             }
             ctx.getProtocolAdapter().beforeStatement(ctx);
@@ -285,9 +289,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             } finally {
                 finishExecution(prepCtx);
             }
-            if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
-                stmtStr = executeStmt.toSql();
-                stmtStr = stmtStr + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
+            if (shouldAuditExecute() && !prepCtx.shouldMaskAuditTemplate()) {
+                stmtStr = executeStmt.toSql()
+                        + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
             }
         } catch (Throwable e) {
             // Catch all throwable.
@@ -298,12 +302,55 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         } finally {
             prepCtx.clearLongData();
         }
-        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog() && executor != null) {
-            auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
-        } else {
+        auditExecute(stmtStr, prepCtx);
+    }
+
+    // See QueryAuditPolicy.shouldAuditPreparedExecute: with query_audit_always_on, the FE that received the
+    // COM_STMT_EXECUTE audits it, and the master leaves an execution forwarded to it to that FE.
+    private boolean shouldAuditExecute() {
+        return QueryAuditPolicy.shouldAuditPreparedExecute(ctx.getSessionVariable().isEnablePreparedStmtAuditLog(),
+                ctx.isProxy());
+    }
+
+    private void auditExecute(String stmtStr, PreparedStatementContext prepared) {
+        boolean alwaysOn = QueryAuditPolicy.isAlwaysOn();
+        if (!shouldAuditExecute() || (executor == null && !alwaysOn)) {
             // When audit log is disabled for prepared statements, still update QPS metrics.
             AuditLogHelper.updateMetrics(ctx);
+            return;
         }
+        StatementBase parsedStmt = executor == null ? null : executor.getParsedStmt();
+        String originalSql = prepared.command.getOriginalStmt().originStmt;
+        UnaryOperator<String> auditSqlRedactor = null;
+        if (prepared.shouldMaskAuditTemplate()) {
+            // Use the original template and its parsing mode, keeping the execution adapter for metadata.
+            stmtStr = originalSql;
+            auditSqlRedactor = prepared::maskAuditSql;
+        } else if (stmtStr == null) {
+            stmtStr = alwaysOn ? originalSql : "";
+        }
+        String sqlHash = null;
+        if (alwaysOn) {
+            sqlHash = prepared.getSqlHash();
+            if (sqlHash == null) {
+                sqlHash = DigestUtils.md5Hex(originalSql);
+            }
+        }
+        if (executor == null) {
+            auditExecuteWithoutExecutor(stmtStr, sqlHash, auditSqlRedactor);
+        } else {
+            auditAfterExec(stmtStr, parsedStmt, executor.getQueryStatisticsForAuditLog(), true,
+                    sqlHash, auditSqlRedactor);
+        }
+    }
+
+    private void auditExecuteWithoutExecutor(String stmtStr, String sqlHash, UnaryOperator<String> auditSqlRedactor) {
+        // No executor assigned query/statement IDs, so do not retain the previous statement's IDs.
+        ctx.resetQueryId();
+        ctx.setStmtId(0);
+        ctx.setExecutor(null);
+        ctx.setEffectiveCloudCluster("");
+        auditAfterExec(stmtStr, null, null, true, sqlHash, auditSqlRedactor);
     }
 
     /**
@@ -345,6 +392,10 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.warn("No such statement in context, stmtId:{}", stmtId);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
                     String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_execute", stmtId));
+            if (QueryAuditPolicy.isAlwaysOn()) {
+                String stmtStr = "EXECUTE `" + Integer.toUnsignedString(stmtId) + "`";
+                auditExecuteWithoutExecutor(stmtStr, DigestUtils.md5Hex(stmtStr), null);
+            }
             return;
         }
         handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext, packetBuf, null);

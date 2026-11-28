@@ -735,7 +735,7 @@ public class EncryptSQLTest extends ParserTestBase {
                     .replace(second,
                             "\"uri\" = \"s3://bucket/other.csv\", \"format\" = \"csv\", \"s3.secret_key\" = \"*XXX\"");
         }
-        Assertions.assertEquals(expected, BaseViewInfo.rewriteSql(replacements, sql));
+        Assertions.assertEquals(expected, BaseViewInfo.rewriteSqlWithUtf16Offsets(replacements, sql));
     }
 
     private void assertLogMasking(String sql, String expected) {

@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.planner.GroupCommitPlanner;
 
@@ -32,6 +33,9 @@ public class PreparedStatementContext {
     public ConnectContext ctx;
     private StatementContext statementContext;
     public String stmtString;
+    // Preserve the effective PREPARE hash, including SQL conversion fallback, across connection commands.
+    private final String sqlHash;
+    private final long auditSqlMode;
     public Optional<ShortCircuitQueryContext> shortCircuitQueryContext = Optional.empty();
     public Optional<GroupCommitPlanner> groupCommitPlanner = Optional.empty();
     // Long data belongs to a prepared statement and survives individual upload commands.
@@ -44,10 +48,30 @@ public class PreparedStatementContext {
 
     public PreparedStatementContext(PrepareCommand command,
                 ConnectContext ctx, StatementContext statementContext, String stmtString) {
+        this(command, ctx, statementContext, stmtString, SqlModeHelper.MODE_DEFAULT);
+    }
+
+    public PreparedStatementContext(PrepareCommand command, ConnectContext ctx,
+            StatementContext statementContext, String stmtString, long auditSqlMode) {
         this.command = command;
         this.ctx = ctx;
         this.statementContext = statementContext;
         this.stmtString = stmtString;
+        this.sqlHash = ctx.getSqlHash();
+        this.auditSqlMode = auditSqlMode;
+    }
+
+    public boolean shouldMaskAuditTemplate() {
+        return command.getLogicalPlan() instanceof NeedAuditEncryption redactor
+                && redactor.needAuditEncryption();
+    }
+
+    public String maskAuditSql(String sql) {
+        return SqlModeHelper.withSqlMode(auditSqlMode, () -> NeedAuditEncryption.maskSqlForAudit(sql));
+    }
+
+    public String getSqlHash() {
+        return sqlHash;
     }
 
     public boolean isEmptyCursorOpen() {

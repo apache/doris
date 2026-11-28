@@ -23,6 +23,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.SetLdapPassVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SetSessionVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -82,9 +83,23 @@ public class SetOptionsCommand extends Command implements Forward, NeedAuditEncr
 
     @Override
     public void afterForwardToMaster(ConnectContext ctx) throws Exception {
-        for (SetVarOp varOp : setVarOpList) {
-            varOp.validate(ctx);
-            varOp.afterForwardToMaster(ctx);
+        boolean restorePreparedAudit = setVarOpList.stream().anyMatch(
+                op -> op instanceof SetSessionVarOp sessionOp && sessionOp.setsProtectedPreparedAuditValue());
+        try {
+            for (SetVarOp varOp : setVarOpList) {
+                // A single protected GLOBAL value has already been applied by journal replay.
+                if (setVarOpList.size() == 1 && varOp instanceof SetSessionVarOp sessionOp
+                        && sessionOp.applyReplayedAuditGlobal(ctx)) {
+                    continue;
+                }
+                varOp.validate(ctx);
+                varOp.afterForwardToMaster(ctx);
+            }
+        } finally {
+            // Preserve the legacy evaluation order for sibling assignments before restoring the permitted value.
+            if (restorePreparedAudit) {
+                SetSessionVarOp.restoreProtectedPreparedAuditValue(ctx);
+            }
         }
     }
 

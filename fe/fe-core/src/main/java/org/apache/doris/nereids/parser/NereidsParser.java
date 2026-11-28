@@ -29,10 +29,13 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.DialectConverterPlugin;
 import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -130,10 +133,12 @@ public class NereidsParser {
      * ParseSQL with logicalPlanBuilder.
      */
     public List<StatementBase> parseSQL(String originStr, @Nullable LogicalPlanBuilder logicalPlanBuilder) {
+        long parsingSqlMode = SqlModeHelper.readingMode();
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = parseMultiple(originStr, logicalPlanBuilder);
         List<StatementBase> statementBases = Lists.newArrayList();
         for (Pair<LogicalPlan, StatementContext> parsedPlanToContext : logicalPlans) {
-            statementBases.add(new LogicalPlanAdapter(parsedPlanToContext.first, parsedPlanToContext.second));
+            statementBases.add(new LogicalPlanAdapter(
+                    parsedPlanToContext.first, parsedPlanToContext.second, parsingSqlMode));
         }
         return statementBases;
     }
@@ -382,6 +387,59 @@ public class NereidsParser {
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
                 ImmutableMap.of(), codePointRanges, preserveFormatting);
         LogicalPlan plan = (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+        copyMaskRanges(sql, codePointRanges, indexInSqlToString);
+        return plan;
+    }
+
+    /** Collect masking ranges across an audit packet without applying its statement hints. */
+    public void parseAuditStatementsForEncryption(String sql, Map<Pair<Integer, Integer>, String> ranges) {
+        CommonTokenStream tokenStream = parseLeanTokens(sql);
+        DorisParser.MultiStatementsContext tree =
+                (DorisParser.MultiStatementsContext) toAst(tokenStream, DorisParser::multiStatements);
+        TreeMap<Pair<Integer, Integer>, String> codePointRanges = new TreeMap<>(new Pair.PairComparator<>());
+        ConnectContext caller = ConnectContext.get();
+        if (caller == null) {
+            collectAuditMaskRanges(tree, codePointRanges);
+        } else {
+            // The production builder can set namespace and statement state even with no hints.
+            ConnectContext auditContext = caller.createInternalQueryContext();
+            auditContext.getSessionVariable().setEnableSqlCache(false);
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(auditContext);
+                    StatementContext statementContext = new StatementContext(auditContext, null)) {
+                scope.connectContext.setStatementContext(statementContext);
+                collectAuditMaskRanges(tree, codePointRanges);
+            }
+        }
+        copyMaskRanges(sql, codePointRanges, ranges);
+    }
+
+    private static void collectAuditMaskRanges(DorisParser.MultiStatementsContext tree,
+            Map<Pair<Integer, Integer>, String> codePointRanges) {
+        Map<Pair<Integer, Integer>, String> statementRanges = new TreeMap<>(new Pair.PairComparator<>());
+        for (DorisParser.StatementContext statement : tree.statement()) {
+            statementRanges.clear();
+            try {
+                LogicalPlanBuilder builder = new LogicalPlanBuilderForEncryption(ImmutableMap.of(), statementRanges) {
+                    @Override
+                    public LogicalPlan visitInsertTable(DorisParser.InsertTableContext insert) {
+                        // Visit the INSERT expressions without constructing an executable command.
+                        LogicalPlan query = visitQuery(insert.query());
+                        parseInsertPartitionSpec(insert.partitionSpec());
+                        return withCte(query, insert.cteContext);
+                    }
+                };
+                ParserUtils.withOrigin(statement, () -> builder.visit(statement));
+                codePointRanges.putAll(statementRanges);
+            } catch (RuntimeException e) {
+                // A failure in one statement's legacy redactor must not discard other statements' text.
+                codePointRanges.put(Pair.of(statement.start.getStartIndex(), statement.stop.getStopIndex()),
+                        NeedAuditEncryption.AUDIT_SQL_UNAVAILABLE);
+            }
+        }
+    }
+
+    private static void copyMaskRanges(String sql, Map<Pair<Integer, Integer>, String> codePointRanges,
+            Map<Pair<Integer, Integer>, String> indexInSqlToString) {
         // ANTLR indexes code points, while SQL rewriting uses Java UTF-16 offsets. Normalize both
         // masking modes here so audit, FE logs and direct parser callers share the same contract.
         // Walk sorted ranges once rather than rescanning the prefix for every replacement.
@@ -395,7 +453,6 @@ public class NereidsParser {
             codePointOffset = range.second + 1;
             charOffset = end;
         }
-        return plan;
     }
 
     /** parseForSyncMv */

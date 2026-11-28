@@ -67,6 +67,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
@@ -101,6 +102,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 
 /**
  * Process one connection, the life cycle is the same as connection
@@ -187,10 +189,20 @@ public abstract class ConnectProcessor {
 
     protected void auditAfterExec(String origStmt, StatementBase parsedStmt,
             Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+        auditAfterExec(origStmt, parsedStmt, statistics, printFuzzyVariables, null, null);
+    }
+
+    protected void auditAfterExec(String origStmt, StatementBase parsedStmt, Data.PQueryStatistics statistics,
+            boolean printFuzzyVariables, String sqlHash, UnaryOperator<String> auditSqlRedactor) {
         if (Config.enable_bdbje_debug_mode) {
             return;
         }
-        AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
+        if (sqlHash == null && auditSqlRedactor == null) {
+            AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
+        } else {
+            AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables,
+                    auditSqlRedactor, sqlHash);
+        }
     }
 
     /**
@@ -464,26 +476,44 @@ public abstract class ConnectProcessor {
             SessionVariable sessionVariable) throws ConnectionException {
         try {
             return new NereidsParser().parseSQL(convertedStmt, sessionVariable);
-        } catch (NotSupportedException | SyntaxParseException e) {
-            List<StatementBase> stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
-            if (stmts == null) {
-                handleQueryException(e, convertedStmt, null, null);
-                return null;
-            }
-            return stmts;
         } catch (Exception e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
-                        e.getMessage(), convertedStmt, e);
-            }
-            Throwable exception = new AnalysisException(e.getMessage(), e);
-            List<StatementBase> stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
-            if (stmts == null) {
-                handleQueryException(exception, originStmt, null, null);
+            if (VariableMgr.isAuditPolicyRejection(e)) {
+                handleAuditPolicyParseRejection(e, convertedStmt, sessionVariable);
                 return null;
             }
-            return stmts;
+            List<StatementBase> stmts;
+            try {
+                stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
+            } catch (RuntimeException auditRejection) {
+                handleAuditPolicyParseRejection(auditRejection, originStmt, sessionVariable);
+                return null;
+            }
+            if (stmts != null) {
+                return stmts;
+            }
+            if (e instanceof NotSupportedException || e instanceof SyntaxParseException) {
+                handleQueryException(e, convertedStmt, null, null);
+            } else {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                            e.getMessage(), convertedStmt, e);
+                }
+                handleQueryException(new AnalysisException(e.getMessage(), e), originStmt, null, null);
+            }
+            return null;
         }
+    }
+
+    private void handleAuditPolicyParseRejection(Throwable error, String sql, SessionVariable session)
+            throws ConnectionException {
+        // The parser may already have applied SET_VAR values. No executor will run to restore them.
+        VariableMgr.restoreTemporaryAuditHintValues(session);
+        executor = null;
+        ctx.setExecutor(null);
+        ctx.setEffectiveCloudCluster("");
+        ctx.setStmtId(0);
+        ctx.setSqlHash(DigestUtils.md5Hex(sql));
+        handleQueryException(new AnalysisException(error.getMessage(), error), sql, null, null);
     }
 
     /**
@@ -501,6 +531,9 @@ public abstract class ConnectProcessor {
                 ctx.setSqlHash(originalSqlHash);
                 return stmts;
             } catch (Exception e) {
+                if (VariableMgr.isAuditPolicyRejection(e)) {
+                    throw new org.apache.doris.nereids.exceptions.AnalysisException(e.getMessage(), e);
+                }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Retry with original SQL failed. "
                                     + "Reason: {}. Original Statement: \"{}\". Converted Statement: \"{}\".",
@@ -544,7 +577,11 @@ public abstract class ConnectProcessor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Process one query failed because: {}", throwable.getMessage());
         }
-        auditAfterExec(origStmt, parsedStmt, statistics, true);
+        if (parsedStmt == null && VariableMgr.isAuditPolicyRejection(throwable)) {
+            auditAfterExec(origStmt, null, statistics, true, null, NeedAuditEncryption::maskSqlForAudit);
+        } else {
+            auditAfterExec(origStmt, parsedStmt, statistics, true);
+        }
     }
 
     public TMasterOpResult proxyExecute(TMasterOpRequest request) throws TException {

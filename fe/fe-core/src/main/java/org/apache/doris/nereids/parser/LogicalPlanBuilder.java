@@ -1627,7 +1627,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * - Static partition with values: PARTITION (col='val', ...)
      * - No partition specified
      */
-    private InsertPartitionSpec parseInsertPartitionSpec(PartitionSpecContext ctx) {
+    protected InsertPartitionSpec parseInsertPartitionSpec(PartitionSpecContext ctx) {
         if (ctx == null) {
             return InsertPartitionSpec.none();
         }
@@ -2476,7 +2476,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * process CTE and store the results in a logical plan node LogicalCTE
      */
-    private LogicalPlan withCte(LogicalPlan plan, CteContext ctx) {
+    protected LogicalPlan withCte(LogicalPlan plan, CteContext ctx) {
         if (ctx == null) {
             return plan;
         }

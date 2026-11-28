@@ -97,8 +97,15 @@ public class AuditLogHelper {
     public static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables,
             UnaryOperator<String> auditSqlRedactor) {
+        logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables, auditSqlRedactor, null);
+    }
+
+    // A prepared audit event can have a different hash from the live connection's execution state.
+    static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
+            org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables,
+            UnaryOperator<String> auditSqlRedactor, String sqlHash) {
         try {
-            logAuditLogImpl(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables, auditSqlRedactor);
+            logAuditLogImpl(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables, auditSqlRedactor, sqlHash);
         } catch (Throwable t) {
             LOG.warn("Failed to write audit log.", t);
         }
@@ -115,10 +122,17 @@ public class AuditLogHelper {
         }
 
         // 2. handle other statement
-        int maxLen = GlobalVariable.auditPluginMaxSqlLength;
-        origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
-            + " */");
-        return origStmt;
+        return truncateStmt(origStmt);
+    }
+
+    /**
+     * Truncate a statement other than INSERT ... VALUES to the effective audit_plugin_max_sql_length, see
+     * QueryAuditPolicy.maxSqlLength(): never negative, which truncateByBytes cannot take, and never below the default
+     * while query_audit_always_on is on.
+     */
+    public static String truncateStmt(String stmt) {
+        int maxLen = QueryAuditPolicy.maxSqlLength();
+        return truncateByBytes(stmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen + " */");
     }
 
     /**
@@ -140,10 +154,7 @@ public class AuditLogHelper {
         }
 
         // 2. handle other statement
-        int maxLen = GlobalVariable.auditPluginMaxSqlLength;
-        origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
-                + " */");
-        return origStmt;
+        return truncateStmt(origStmt);
     }
 
     private static Optional<String> handleInsertCommand(String origStmt, Command command) {
@@ -158,7 +169,7 @@ public class AuditLogHelper {
         if (rowCnt > 0) {
             // This is an insert statement.
             int maxLen = Math.max(0,
-                    Math.min(GlobalVariable.auditPluginMaxInsertStmtLength, GlobalVariable.auditPluginMaxSqlLength));
+                    Math.min(QueryAuditPolicy.maxInsertStmtLength(), QueryAuditPolicy.maxSqlLength()));
             origStmt = truncateByBytes(origStmt, maxLen, " ... /* total " + rowCnt
                 + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */");
             return Optional.of(origStmt);
@@ -182,7 +193,7 @@ public class AuditLogHelper {
         if (rowCnt > 0) {
             // This is an insert statement.
             int maxLen = Math.max(0,
-                    Math.min(GlobalVariable.auditPluginMaxInsertStmtLength, GlobalVariable.auditPluginMaxSqlLength));
+                    Math.min(QueryAuditPolicy.maxInsertStmtLength(), QueryAuditPolicy.maxSqlLength()));
             origStmt = truncateByBytes(origStmt, maxLen, " ... /* total " + rowCnt
                     + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */");
             return Optional.of(origStmt);
@@ -233,7 +244,7 @@ public class AuditLogHelper {
 
     private static void logAuditLogImpl(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables,
-            UnaryOperator<String> auditSqlRedactor) {
+            UnaryOperator<String> auditSqlRedactor, String sqlHash) {
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
@@ -298,7 +309,7 @@ public class AuditLogHelper {
                 .setCommandType(ctx.getCommand().toString())
                 .setStmtType(stmtType)
                 .setStmtId(ctx.getStmtId())
-                .setSqlHash(ctx.getSqlHash())
+                .setSqlHash(sqlHash == null ? ctx.getSqlHash() : sqlHash)
                 .setIsQuery(ctx.getState().isQuery())
                 .setIsNereids(ctx.getState().isNereids())
                 .setisInternal(ctx.getState().isInternal())

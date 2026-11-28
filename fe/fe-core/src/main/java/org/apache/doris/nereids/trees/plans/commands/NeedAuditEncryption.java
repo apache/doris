@@ -27,6 +27,8 @@ import java.util.TreeMap;
  * NeedAuditEncryption
  */
 public interface NeedAuditEncryption {
+    String AUDIT_SQL_UNAVAILABLE = "/* audit SQL unavailable */";
+
     boolean needAuditEncryption();
 
     /**
@@ -39,11 +41,22 @@ public interface NeedAuditEncryption {
         return maskSql(sql, false);
     }
 
+    /** Keep the audit event when SQL masking cannot safely recover the statement. */
+    static String maskSqlForAudit(String sql) {
+        try {
+            TreeMap<Pair<Integer, Integer>, String> ranges = new TreeMap<>(new Pair.PairComparator<>());
+            new NereidsParser().parseAuditStatementsForEncryption(sql, ranges);
+            return BaseViewInfo.rewriteSqlWithUtf16Offsets(ranges, sql);
+        } catch (RuntimeException e) {
+            return AUDIT_SQL_UNAVAILABLE;
+        }
+    }
+
     /** Apply audit masking rules, optionally retaining source formatting for FE logs. */
     static String maskSql(String sql, boolean preserveFormatting) {
         TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
         NereidsParser parser = new NereidsParser();
         parser.parseForEncryption(sql, indexInSqlToString, preserveFormatting);
-        return BaseViewInfo.rewriteSql(indexInSqlToString, sql);
+        return BaseViewInfo.rewriteSqlWithUtf16Offsets(indexInSqlToString, sql);
     }
 }

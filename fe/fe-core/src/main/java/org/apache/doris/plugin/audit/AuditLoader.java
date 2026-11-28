@@ -28,7 +28,7 @@ import org.apache.doris.plugin.PluginException;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
-import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.QueryAuditPolicy;
 
 import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
@@ -120,7 +120,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     public void exec(AuditEvent event) {
-        if (!GlobalVariable.enableAuditLoader) {
+        if (!QueryAuditPolicy.isAuditLoaderEnabled()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("builtin audit loader is disabled, discard current audit event");
             }
@@ -269,8 +269,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     public synchronized void loadIfNecessary(boolean force) {
         long currentTime = System.currentTimeMillis();
 
-        if (auditLogBuffer.length() != 0 && (force || auditLogBuffer.length() >= GlobalVariable.auditPluginMaxBatchBytes
-                || currentTime - lastLoadTimeAuditLog >= GlobalVariable.auditPluginMaxBatchInternalSec * 1000)) {
+        if (auditLogBuffer.length() != 0 && (force || auditLogBuffer.length() >= QueryAuditPolicy.maxBatchBytes()
+                || currentTime - lastLoadTimeAuditLog >= QueryAuditPolicy.maxBatchIntervalSec() * 1000)) {
             // begin to load
             try {
                 String token = "";

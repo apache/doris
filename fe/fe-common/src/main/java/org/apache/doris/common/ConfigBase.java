@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.qe.QueryAuditPolicy;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -28,7 +30,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
@@ -140,6 +141,7 @@ public class ConfigBase {
 
     private static String confFile;
     private static String customConfFile;
+    private static String lastReadableCustomAuditPolicy;
     public static Class<? extends ConfigBase> confClass;
     public static Map<String, Field> confFields;
 
@@ -188,22 +190,25 @@ public class ConfigBase {
 
     public void initCustom(String customConfFile) throws Exception {
         this.customConfFile = customConfFile;
+        lastReadableCustomAuditPolicy = null;
         File file = new File(customConfFile);
         if (file.exists() && file.isFile()) {
             // customConfFile is introduced in version 0.14, for compatibility, check if it exist
             // config in customConfFile will overwrite the config in confFile
-            initConf(customConfFile);
+            lastReadableCustomAuditPolicy = initConf(customConfFile);
         }
     }
 
-    private void initConf(String confFile) throws Exception {
+    private String initConf(String confFile) throws Exception {
         Properties props = new Properties();
         try (FileReader fr = new FileReader(confFile)) {
             props.load(fr);
         }
+        String auditPolicy = props.getProperty(QueryAuditPolicy.QUERY_AUDIT_ALWAYS_ON);
         replacedByEnv(props);
         setFields(props, isLdapConfig);
         warnUnknownConfigKeys(confFile, props);
+        return auditPolicy;
     }
 
     // Keys that start with an uppercase letter and consist only of uppercase letters,
@@ -539,16 +544,26 @@ public class ConfigBase {
         if (!file.exists()) {
             file.getParentFile().mkdirs();
             file.createNewFile();
-        } else if (resetPersist) {
-            // clear the customConfFile content
-            try (PrintWriter writer = new PrintWriter(file)) {
-                writer.print("");
+        }
+        Properties props = new Properties();
+        String auditPolicy;
+        try (FileReader fr = new FileReader(file)) {
+            props.load(fr);
+            auditPolicy = props.getProperty(QueryAuditPolicy.QUERY_AUDIT_ALWAYS_ON);
+        } catch (IllegalArgumentException e) {
+            if (!resetPersist) {
+                throw e;
             }
+            // Reset must still repair an invalid overlay. Keep the opt-in from the last readable version.
+            LOG.warn("Resetting malformed custom configuration", e);
+            auditPolicy = lastReadableCustomAuditPolicy;
         }
 
-        Properties props = new Properties();
-        try (FileReader fr = new FileReader(customConfFile)) {
-            props.load(fr);
+        if (resetPersist) {
+            props.clear();
+            if (auditPolicy != null) {
+                props.setProperty(QueryAuditPolicy.QUERY_AUDIT_ALWAYS_ON, auditPolicy);
+            }
         }
 
         for (Map.Entry<String, String> entry : customConf.entrySet()) {
@@ -560,6 +575,7 @@ public class ConfigBase {
                     + "You can modify this file manually, and the configurations in this file\n"
                     + "will overwrite the configurations in fe.conf");
         }
+        lastReadableCustomAuditPolicy = props.getProperty(QueryAuditPolicy.QUERY_AUDIT_ALWAYS_ON);
     }
 
     public static int getConfigNumByVariableAnnotation(VariableAnnotation type) {

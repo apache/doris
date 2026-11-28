@@ -1436,8 +1436,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         makeConnectContext();
         TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
         new NereidsParser().parseForEncryption(getExecuteSql(), indexInSqlToString);
-        BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
-        String encryptSql = BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
+        String encryptSql = BaseViewInfo.rewriteSqlWithUtf16Offsets(indexInSqlToString, getExecuteSql());
         setEncryptedSql(encryptSql);
         return encryptSql;
     }

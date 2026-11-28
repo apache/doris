@@ -26,7 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.InternalHttpsUtils;
-import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.QueryAuditPolicy;
 
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.logging.log4j.LogManager;
@@ -88,7 +88,7 @@ public class AuditStreamLoader {
         conn.addRequestProperty("compress_type", COMPRESS_TYPE);
         conn.setConnectTimeout(HTTP_TIMEOUT_MS);
         conn.setReadTimeout(HTTP_TIMEOUT_MS);
-        conn.setRequestProperty("timeout", String.valueOf(GlobalVariable.auditPluginLoadTimeoutS));
+        conn.setRequestProperty("timeout", String.valueOf(QueryAuditPolicy.loadTimeoutS()));
         conn.addRequestProperty("max_filter_ratio", "1.0");
         conn.addRequestProperty("columns", columns);
         conn.addRequestProperty("redirect-policy", "random-be");

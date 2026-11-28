@@ -19,15 +19,19 @@ package org.apache.doris.plugin.audit;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.catalog.InternalSchema;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Splitter;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -67,6 +71,30 @@ public class AuditLoaderTest {
             throw new AssertionError("failed to assemble audit event", error.get());
         }
         Assertions.assertTrue(getAuditLogBuffer(auditLoader).contains(auditEvent.queryId));
+    }
+
+    // enable_audit_plugin=false makes the loader drop events, unless query_audit_always_on is on.
+    @Test
+    public void testAlwaysOnLoadsEventsWhenAuditPluginIsDisabled() {
+        AuditLoader auditLoader = new AuditLoader();
+        BlockingQueue<AuditEvent> queue = new LinkedBlockingDeque<>();
+        Deencapsulation.setField(auditLoader, "auditEventQueue", queue);
+        AuditEvent auditEvent = new AuditEvent.AuditEventBuilder().setQueryId("always-on").setStmt("select 1").build();
+        boolean enableAuditLoader = GlobalVariable.enableAuditLoader;
+        boolean alwaysOn = Config.query_audit_always_on;
+        try {
+            GlobalVariable.enableAuditLoader = false;
+            Config.query_audit_always_on = false;
+            auditLoader.exec(auditEvent);
+            Assertions.assertTrue(queue.isEmpty());
+
+            Config.query_audit_always_on = true;
+            auditLoader.exec(auditEvent);
+            Assertions.assertSame(auditEvent, queue.poll());
+        } finally {
+            GlobalVariable.enableAuditLoader = enableAuditLoader;
+            Config.query_audit_always_on = alwaysOn;
+        }
     }
 
     private boolean waitForBlocked(Thread thread) throws InterruptedException {

@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -40,6 +42,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.QueryAuditPolicy;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.HeartbeatFlags;
@@ -147,9 +150,26 @@ public class SetSessionVarOp extends SetVarOp {
         return sb.toString();
     }
 
+    public boolean setsProtectedPreparedAuditValue() {
+        return QueryAuditPolicy.isAlwaysOn()
+                && SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG.equalsIgnoreCase(name);
+    }
+
+    /** Restore the only value an enabled master could commit after ordered client session updates finish. */
+    public static void restoreProtectedPreparedAuditValue(ConnectContext ctx) throws DdlException {
+        VariableMgr.setVarForNonMasterFE(ctx.getSessionVariable(),
+                new SetVar(SetType.SESSION, SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG, new BoolLiteral(true)));
+    }
+
+    public boolean applyReplayedAuditGlobal(ConnectContext ctx) throws DdlException {
+        return getType() == SetType.GLOBAL && VariableMgr.applyReplayedAuditGlobal(ctx.getSessionVariable(), name);
+    }
+
     public void afterForwardToMaster(ConnectContext ctx) throws Exception {
+        boolean validatedByMaster = getType() == SetType.GLOBAL || setsProtectedPreparedAuditValue();
         setType(SetType.SESSION);
-        VariableMgr.setVarForNonMasterFE(ctx.getSessionVariable(), translateToLegacyVar(ctx));
+        VariableMgr.setVarForNonMasterFE(ctx.getSessionVariable(), translateToLegacyVar(ctx),
+                validatedByMaster);
     }
 
     // TODO delete this method after removing dependence of SetVar in VariableMgr

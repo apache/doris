@@ -35,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.ResultSetMetaData;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.Lists;
@@ -57,6 +58,7 @@ public class PrepareCommand extends Command {
     private final String name;
 
     private final OriginStatement originalStmt;
+    private final long auditSqlMode;
 
     /**
      * constructor
@@ -67,11 +69,18 @@ public class PrepareCommand extends Command {
      */
     public PrepareCommand(String name, LogicalPlan plan, List<Placeholder> placeholders,
                 OriginStatement originalStmt) {
+        this(name, plan, placeholders, originalStmt, SqlModeHelper.MODE_DEFAULT);
+    }
+
+    /** Prepare an SQL template with the mode that was in effect during lexing. */
+    public PrepareCommand(String name, LogicalPlan plan, List<Placeholder> placeholders,
+            OriginStatement originalStmt, long auditSqlMode) {
         super(PlanType.PREPARED_COMMAND);
         this.logicalPlan = plan;
         this.placeholders.addAll(placeholders);
         this.name = name;
         this.originalStmt = originalStmt;
+        this.auditSqlMode = auditSqlMode;
     }
 
     public String getName() {
@@ -134,7 +143,8 @@ public class PrepareCommand extends Command {
                     name, ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE);
         }
         ctx.addPreparedStatementContext(name,
-                new PreparedStatementContext(this, ctx, ctx.getStatementContext(), name));
+                new PreparedStatementContext(this, ctx, ctx.getStatementContext(), name,
+                        auditSqlMode));
         if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE && !ctx.isProxy()) {
             executor.sendStmtPrepareOK(Integer.parseInt(name), labels, slots);
         }
@@ -146,7 +156,7 @@ public class PrepareCommand extends Command {
     }
 
     public PrepareCommand withPlaceholders(List<Placeholder> placeholders) {
-        return new PrepareCommand(this.name, this.logicalPlan, placeholders, this.originalStmt);
+        return new PrepareCommand(this.name, this.logicalPlan, placeholders, this.originalStmt, auditSqlMode);
     }
 
     @Override

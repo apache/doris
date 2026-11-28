@@ -45,6 +45,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.text.similarity.JaroWinklerDistance;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -61,6 +62,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.StringJoiner;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -376,7 +378,44 @@ public class VariableMgr {
                     findSimilarSessionVarNames(setVar.getVariable()));
         }
         checkUpdate(setVar, varCtx.getFlag());
+        checkAuditVariableValue(varCtx, getValueToSet(setVar, varCtx));
         setVarInternal(sessionVariable, setVar, varCtx);
+    }
+
+    // Rejects a value that would break query auditing (QueryAuditPolicy). The check sits on the entries users set
+    // variables through, not in setValue: replaying the edit log and loading the image also go through setValue,
+    // which would skip a rejected value on one FE only.
+    private static void checkAuditVariableValue(VarContext ctx, String value) throws DdlException {
+        Optional<String> error = QueryAuditPolicy.checkVariableValue(getName(ctx), value);
+        if (error.isPresent()) {
+            throw new AuditPolicyException(error.get());
+        }
+    }
+
+    /** A SET rejected by query audit policy, including one evaluated while building a statement. */
+    static class AuditPolicyException extends DdlException {
+        AuditPolicyException(String message) {
+            super(message);
+        }
+    }
+
+    public static boolean isAuditPolicyRejection(Throwable error) {
+        return ExceptionUtils.indexOfType(error, AuditPolicyException.class) >= 0;
+    }
+
+    public static void restoreTemporaryAuditHintValues(SessionVariable session) {
+        try {
+            revertSessionValue(session);
+        } catch (DdlException e) {
+            LOG.warn("Failed to restore session values after audit policy rejected parsing", e);
+        } finally {
+            session.setIsSingleSetVar(false);
+            session.clearSessionOriginValue();
+        }
+    }
+
+    private static String getName(VarContext ctx) {
+        return ctx.getField().getAnnotation(VarAttrDef.VarAttr.class).name();
     }
 
     /**
@@ -409,6 +448,11 @@ public class VariableMgr {
 
     public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
+        setVarForNonMasterFE(sessionVariable, setVar, false);
+    }
+
+    public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar,
+            boolean validatedByMaster) throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
             if (isRemovedSessionVar(setVar.getVariable())) {
@@ -423,7 +467,35 @@ public class VariableMgr {
             }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
+        // The master validated these settings. Keep the callback's legacy assignment order.
+        if (!validatedByMaster) {
+            checkAuditVariableValue(varCtx, getValueToSet(setVar, varCtx));
+        }
         setVarInternal(sessionVariable, setVar, varCtx);
+    }
+
+    /** Apply the master's already-replayed audit GLOBAL assignment to the issuing session if it has a field. */
+    public static boolean applyReplayedAuditGlobal(SessionVariable session, String name) throws DdlException {
+        VarContext context = getVarContext(name);
+        if (context == null) {
+            return false;
+        }
+        String canonicalName = getName(context);
+        boolean policyApplies = QueryAuditPolicy.isAlwaysOn()
+                || GlobalVariable.AUDIT_PLUGIN_MAX_SQL_LENGTH.equals(canonicalName);
+        if (!policyApplies || !QueryAuditPolicy.protectedVariableNames().contains(canonicalName)) {
+            return false;
+        }
+        if ((context.getFlag() & VarAttrDef.GLOBAL) == 0) {
+            rlock.lock();
+            try {
+                Field field = context.getField();
+                setValue(session, new SessionVariableField(field), getValue(context.getObj(), field));
+            } finally {
+                rlock.unlock();
+            }
+        }
+        return true;
     }
 
     @Nullable
@@ -468,20 +540,24 @@ public class VariableMgr {
         return ctx.isShown();
     }
 
-    private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx)
-            throws DdlException {
-        // To modify to default value.
-        VarAttrDef.VarAttr attr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
-        String value;
+    // The value a SetVar assigns: its literal, or the variable's default for `set variable = DEFAULT`.
+    private static String getValueToSet(SetVar setVar, VarContext ctx) throws DdlException {
         // If value is null, this is `set variable = DEFAULT`
         if (setVar.getResult() != null) {
-            value = setVar.getResult().getStringValue();
-        } else {
-            value = ctx.getDefaultValue();
-            if (value == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_NO_DEFAULT, attr.name());
-            }
+            return setVar.getResult().getStringValue();
         }
+        String value = ctx.getDefaultValue();
+        if (value == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_NO_DEFAULT,
+                    ctx.getField().getAnnotation(VarAttrDef.VarAttr.class).name());
+        }
+        return value;
+    }
+
+    private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx)
+            throws DdlException {
+        VarAttrDef.VarAttr attr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
+        String value = getValueToSet(setVar, ctx);
 
         if (setVar.getType() == SetType.GLOBAL) {
             setGlobalVarAndWriteEditLog(ctx, attr.name(), value);
@@ -534,6 +610,34 @@ public class VariableMgr {
             wlock.unlock();
         }
         LOG.info("upgrade FE from {}, set {} to new default value: {}", versionMsg, sessionVar, value);
+    }
+
+    /**
+     * Rewrites the global values that query_audit_always_on does not allow, such as an enable_audit_plugin=false
+     * from the image, to the values they take effect with, so that SHOW VARIABLES shows what the FE enforces. The
+     * master runs it when it takes over and writes each rewrite to the edit log as SET GLOBAL does, so the followers
+     * show the same values.
+     */
+    public static void applyQueryAuditPolicyToGlobalValues() throws DdlException {
+        if (!QueryAuditPolicy.isAlwaysOn()) {
+            return;
+        }
+        wlock.lock();
+        try {
+            for (String name : QueryAuditPolicy.protectedVariableNames()) {
+                VarContext ctx = ctxByVarName.get(name);
+                String value = getValue(ctx.getObj(), ctx.getField());
+                String effectiveValue = QueryAuditPolicy.effectiveVariableValue(name, value);
+                if (effectiveValue.equals(value)) {
+                    continue;
+                }
+                setGlobalVarAndWriteEditLog(ctx, name, effectiveValue);
+                LOG.info("{} is enabled, set global variable {} from {} to {}",
+                        QueryAuditPolicy.QUERY_AUDIT_ALWAYS_ON, name, value, effectiveValue);
+            }
+        } finally {
+            wlock.unlock();
+        }
     }
 
     public static void setLowerCaseTableNames(int mode) throws DdlException {
@@ -849,6 +953,13 @@ public class VariableMgr {
                 checkUpdate(setVar, varCtx.getFlag());
             } catch (DdlException e) {
                 LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+                continue;
+            }
+            // A default that query_audit_always_on does not allow, such as enable_prepared_stmt_audit_log=false,
+            // leaves its variable as it is instead of failing the whole UNSET ALL.
+            Optional<String> auditError = QueryAuditPolicy.checkVariableValue(getName(varCtx), defaultValue);
+            if (auditError.isPresent()) {
+                LOG.debug("skip resetting variable {}: {}", setVar.getVariable(), auditError.get());
                 continue;
             }
             setVarInternal(sessionVariable, setVar, varCtx);

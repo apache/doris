@@ -25,6 +25,35 @@ import java.lang.reflect.Method;
 
 public class Log4jConfigTest {
 
+    @Test
+    public void testAlwaysOnRetainsAuditFileAppender() {
+        boolean originalFileLogger = Config.enable_file_logger;
+        boolean originalAlwaysOn = Config.query_audit_always_on;
+        String template = "<!--REPLACED BY LOG APPENDER-->\n<!--REPLACED BY WARN_LOG_APPENDER-->\n"
+                + "<!--REPLACED BY AUDIT FILE LOGGER-->";
+        try {
+            Config.enable_file_logger = false;
+            Config.query_audit_always_on = false;
+            Assertions.assertEquals(template, Log4jConfig.addFileAppenderReferences(template));
+
+            Config.query_audit_always_on = true;
+            String auditOnly = Log4jConfig.addFileAppenderReferences(template);
+            Assertions.assertTrue(auditOnly.contains("ref=\"AuditFile\""));
+            Assertions.assertFalse(auditOnly.contains("ref=\"Sys\""));
+            Assertions.assertFalse(auditOnly.contains("level=\"WARN\""));
+
+            Config.enable_file_logger = true;
+            Config.query_audit_always_on = false;
+            String allFiles = Log4jConfig.addFileAppenderReferences(template);
+            Assertions.assertTrue(allFiles.contains("ref=\"AuditFile\""));
+            Assertions.assertTrue(allFiles.contains("ref=\"Sys\""));
+            Assertions.assertTrue(allFiles.contains("level=\"WARN\""));
+        } finally {
+            Config.enable_file_logger = originalFileLogger;
+            Config.query_audit_always_on = originalAlwaysOn;
+        }
+    }
+
     /**
      * Test that getXmlConfByStrategy correctly reads Config.log_rollover_strategy
      * and generates the corresponding XML snippet.

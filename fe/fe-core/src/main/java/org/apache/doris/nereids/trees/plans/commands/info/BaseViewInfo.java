@@ -152,6 +152,18 @@ public class BaseViewInfo {
         return builder.toString();
     }
 
+    /** Apply sorted replacements whose inclusive ranges are already Java string offsets. */
+    public static String rewriteSqlWithUtf16Offsets(TreeMap<Pair<Integer, Integer>, String> replacements, String sql) {
+        StringBuilder builder = new StringBuilder();
+        int begin = 0;
+        for (Map.Entry<Pair<Integer, Integer>, String> entry : replacements.entrySet()) {
+            Pair<Integer, Integer> range = entry.getKey();
+            builder.append(sql, begin, range.first).append(entry.getValue());
+            begin = range.second + 1;
+        }
+        return builder.append(sql, begin, sql.length()).toString();
+    }
+
     protected String rewriteProjectsToUserDefineAlias(String resSql) {
         if (simpleColumnDefinitions.isEmpty()) {
             return resSql;

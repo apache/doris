@@ -44,6 +44,7 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
     private final StatementContext statementContext;
     private final LogicalPlan logicalPlan;
+    private final Long parsingSqlMode;
     private List<Expr> resultExprs;
     private ArrayList<String> colLabels;
     private List<FieldInfo> fieldInfos;
@@ -54,12 +55,22 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
      * constructor
      */
     public LogicalPlanAdapter(LogicalPlan logicalPlan, StatementContext statementContext) {
+        this(logicalPlan, statementContext, null);
+    }
+
+    /** Preserve the lexical mode for auditing a server-side prepared template. */
+    public LogicalPlanAdapter(LogicalPlan logicalPlan, StatementContext statementContext, Long parsingSqlMode) {
+        this.parsingSqlMode = parsingSqlMode;
         this.logicalPlan = logicalPlan;
         this.statementContext = statementContext;
         if (statementContext != null && statementContext.getConnectContext() != null
                 && !statementContext.getConnectContext().isProxy()) {
             digest = logicalPlan == null ? "" : logicalPlan.toDigest();
         }
+    }
+
+    public long getParsingSqlMode(long fallbackMode) {
+        return parsingSqlMode == null ? fallbackMode : parsingSqlMode;
     }
 
     public LogicalPlan getLogicalPlan() {

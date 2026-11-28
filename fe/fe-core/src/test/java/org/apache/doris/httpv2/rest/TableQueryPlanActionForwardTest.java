@@ -17,10 +17,19 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
 import com.sun.net.httpserver.HttpServer;
 import jakarta.servlet.ServletInputStream;
@@ -35,12 +44,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -139,6 +151,45 @@ public class TableQueryPlanActionForwardTest {
                 () -> action.query_plan("testDb", "testTbl", request, response));
         Mockito.verify(request, Mockito.never()).getInputStream();
         Mockito.verify(action, Mockito.never()).forwardToMaster(Mockito.any(), Mockito.any(), Mockito.anyString());
+    }
+
+    @Test
+    public void testRejectedAuditHintProducesHttpPlanEvent() throws Exception {
+        boolean previousPolicy = Config.query_audit_always_on;
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setCurrentUserIdentity(UserIdentity.ROOT);
+        context.setThreadLocalInfo();
+        try {
+            Config.query_audit_always_on = true;
+            Mockito.when(env.getCatalogMgr()).thenReturn(Mockito.mock(CatalogMgr.class));
+            Mockito.when(env.getPluginMgr()).thenReturn(Mockito.mock(PluginMgr.class));
+            Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
+            WorkloadRuntimeStatusMgr audit = Mockito.mock(WorkloadRuntimeStatusMgr.class);
+            Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(audit);
+            Method handleQuery = TableQueryPlanAction.class.getDeclaredMethod(
+                    "handleQuery", ConnectContext.class, String.class, String.class, String.class, Map.class);
+            handleQuery.setAccessible(true);
+            String sql = "SELECT /*+ SET_VAR(enable_prepared_stmt_audit_log=false) */ item FROM sample_items";
+            InvocationTargetException result = Assertions.assertThrows(InvocationTargetException.class,
+                    () -> handleQuery.invoke(action, context, "testDb", "sample_items", sql, new HashMap<>()));
+            Assertions.assertInstanceOf(DorisHttpException.class, result.getCause());
+            Assertions.assertTrue(result.getCause().getMessage().contains("enable_prepared_stmt_audit_log"),
+                    result.getCause().getMessage());
+
+            ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
+            Mockito.verify(audit).submitFinishQueryToAudit(event.capture());
+            Assertions.assertEquals("HttpPlan", event.getValue().commandType);
+            Assertions.assertEquals("ERR", event.getValue().state);
+            Assertions.assertEquals(sql, event.getValue().stmt);
+        } finally {
+            Config.query_audit_always_on = previousPolicy;
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
     }
 
     private void setRequestBody(String body) throws IOException {
