@@ -50,6 +50,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
@@ -84,6 +85,7 @@ public class Memo {
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
     private Group root;
+    private boolean topologicalRanksValid = true;
 
     // FOR TEST ONLY
     public Memo() {
@@ -459,7 +461,7 @@ public class Memo {
         GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
         Group group = new Group(groupIdGenerator.getNextId(), newGroupExpression, plan.getLogicalProperties());
 
-        groups.put(group.getGroupId(), group);
+        registerGroup(group);
         if (groupExpressions.containsKey(newGroupExpression)) {
             throw new IllegalStateException("groupExpression already exists in memo, maybe a bug");
         }
@@ -507,6 +509,12 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult doRewrite(Plan plan, @Nullable Group targetGroup) {
+        // Rewriting can temporarily redirect parents before removing the old expressions.
+        // Disable rank propagation throughout that operation; CBO normally starts with a fresh Memo.
+        if (topologicalRanksValid) {
+            topologicalRanksValid = false;
+            groups.values().forEach(Group::invalidateTopologicalRank);
+        }
         Preconditions.checkArgument(plan != null, "plan can not be null");
         Preconditions.checkArgument(plan instanceof LogicalPlan, "only logical plan can be rewrite");
 
@@ -642,7 +650,7 @@ public class Memo {
             target.addGroupExpression(groupExpression);
         } else {
             Group group = new Group(groupIdGenerator.getNextId(), groupExpression, logicalProperties);
-            groups.put(group.getGroupId(), group);
+            registerGroup(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
         return CopyInResult.of(true, groupExpression);
@@ -662,25 +670,38 @@ public class Memo {
         if (source.equals(destination)) {
             return;
         }
-        List<GroupExpression> needReplaceChild = Lists.newArrayList();
         for (GroupExpression dstParent : destination.getParentGroupExpressions()) {
             if (dstParent.getOwnerGroup().equals(source)) {
-                // cycle, we should not merge
                 return;
             }
         }
+        List<GroupExpression> needReplaceChild = Lists.newArrayList();
         for (GroupExpression srcParent : source.getParentGroupExpressions()) {
-            if (srcParent.getOwnerGroup().equals(destination)) {
-                // cycle, we should not merge
+            Group parentOwnerGroup = srcParent.getOwnerGroup();
+            if (parentOwnerGroup.equals(destination)) {
                 return;
             }
-            Group parentOwnerGroup = srcParent.getOwnerGroup();
             if (parentOwnerGroup.getEnforcers().containsKey(srcParent)) {
                 continue;
             }
             needReplaceChild.add(srcParent);
         }
+        // Equal ranks prove independence. Otherwise a dependency can only run from the higher rank downwards.
+        int sourceRank = source.getTopologicalRank();
+        int destinationRank = destination.getTopologicalRank();
+        if (sourceRank < 0 || destinationRank < 0) {
+            if (isReachable(source, destination) || isReachable(destination, source)) {
+                return;
+            }
+        } else if (sourceRank > destinationRank ? isReachable(source, destination)
+                : sourceRank < destinationRank && isReachable(destination, source)) {
+            return;
+        }
         for (GroupExpression reinsertGroupExpr : needReplaceChild) {
+            // An earlier recursive merge can retire another parent in this snapshot.
+            if (reinsertGroupExpr.isUnused()) {
+                continue;
+            }
             // After change GroupExpression children, hashcode will change, so need to reinsert into map.
             groupExpressions.remove(reinsertGroupExpr);
             reinsertGroupExpr.replaceChild(source, destination);
@@ -688,19 +709,26 @@ public class Memo {
             GroupExpression existGroupExpr = groupExpressions.get(reinsertGroupExpr);
             if (existGroupExpr != null) {
                 Preconditions.checkState(existGroupExpr.getOwnerGroup() != null);
-                // remove reinsertGroupExpr from its owner group to avoid adding it to existGroupExpr.getOwnerGroup()
-                // existGroupExpr.getOwnerGroup() already has this reinsertGroupExpr.
-                reinsertGroupExpr.setUnused(true);
                 if (existGroupExpr.getOwnerGroup().equals(reinsertGroupExpr.getOwnerGroup())) {
                     // reinsertGroupExpr & existGroupExpr are in same Group, so merge them.
-                    if (reinsertGroupExpr.getPlan() instanceof PhysicalPlan) {
-                        reinsertGroupExpr.getOwnerGroup().replaceBestPlanGroupExpr(reinsertGroupExpr, existGroupExpr);
-                    }
-                    // existingGroupExpression merge the state of reinsertGroupExpr
-                    reinsertGroupExpr.mergeTo(existGroupExpr);
+                    mergeDuplicateExpression(reinsertGroupExpr, existGroupExpr);
                 } else {
                     // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
                     mergeGroup(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup(), planTable);
+                    if (!reinsertGroupExpr.isUnused()) {
+                        // A refused owner-group merge can retain equal alternatives in this group,
+                        // even though the global canonical expression belongs to another group.
+                        Group owner = reinsertGroupExpr.getOwnerGroup();
+                        List<GroupExpression> alternatives = reinsertGroupExpr.getPlan() instanceof LogicalPlan
+                                ? owner.getLogicalExpressions() : owner.getPhysicalExpressions();
+                        GroupExpression duplicate = alternatives.stream()
+                                .filter(expression -> expression != reinsertGroupExpr
+                                        && expression.equals(reinsertGroupExpr))
+                                .findFirst().orElse(null);
+                        if (duplicate != null) {
+                            mergeDuplicateExpression(reinsertGroupExpr, duplicate);
+                        }
+                    }
                 }
             } else {
                 groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
@@ -722,6 +750,52 @@ public class Memo {
         groups.remove(source.getGroupId());
     }
 
+    private static void mergeDuplicateExpression(GroupExpression source, GroupExpression target) {
+        if (source.getPlan() instanceof PhysicalPlan) {
+            source.getOwnerGroup().replaceBestPlanGroupExpr(source, target);
+        }
+        source.mergeTo(target);
+    }
+
+    boolean isReachable(Group from, Group target) {
+        Set<Group> visited = new HashSet<>();
+        ArrayDeque<Group> pending = new ArrayDeque<>();
+        pending.add(from);
+        while (!pending.isEmpty()) {
+            Group group = pending.removeLast();
+            if (group.equals(target)) {
+                return true;
+            }
+            if (!visited.add(group)) {
+                continue;
+            }
+            for (GroupExpression expression : group.getLogicalExpressions()) {
+                addChildrenAboveTarget(expression, target, pending);
+            }
+            for (GroupExpression expression : group.getPhysicalExpressions()) {
+                addChildrenAboveTarget(expression, target, pending);
+            }
+            // Enforcers deliberately reference their own group and are not dependencies between groups.
+        }
+        return false;
+    }
+
+    private static void addChildrenAboveTarget(GroupExpression expression, Group target, ArrayDeque<Group> pending) {
+        for (Group child : expression.children()) {
+            if (child == target || target.getTopologicalRank() < 0 || child.getTopologicalRank() < 0
+                    || child.getTopologicalRank() > target.getTopologicalRank()) {
+                pending.add(child);
+            }
+        }
+    }
+
+    private void registerGroup(Group group) {
+        if (topologicalRanksValid) {
+            group.initializeTopologicalRank();
+        }
+        groups.put(group.getGroupId(), group);
+    }
+
     private CopyInResult rewriteByExistedPlan(Group targetGroup, Plan existedPlan) {
         GroupExpression existedLogicalExpression = existedPlan instanceof GroupPlan
                 ? ((GroupPlan) existedPlan).getGroup().getLogicalExpression() // get first logicalGroupExpression
@@ -737,7 +811,7 @@ public class Memo {
 
     public Group newGroup(LogicalProperties logicalProperties) {
         Group group = new Group(groupIdGenerator.getNextId(), logicalProperties);
-        groups.put(group.getGroupId(), group);
+        registerGroup(group);
         return group;
     }
 
@@ -749,7 +823,7 @@ public class Memo {
             // then create new group with the newGroupExpression
             Group newGroup = new Group(groupIdGenerator.getNextId(), newGroupExpression,
                     newPlan.getLogicalProperties());
-            groups.put(newGroup.getGroupId(), newGroup);
+            registerGroup(newGroup);
             groupExpressions.put(newGroupExpression, newGroupExpression);
         } else {
             // case 3:

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -85,7 +86,11 @@ class GraphSimplifierConsistencyTest extends TPCHTestBase {
                 ex.printStackTrace(System.out);
                 System.out.println("==== ORIGINAL PLAN (on exception) ====");
                 System.out.println(originalPlanStr);
-                Assertions.fail("Unexpected exception: " + ex.getMessage(), ex);
+                // FE logs are cleaned after the test, and Surefire trims the cause's stack trace.
+                // Keep the generated input and full cause in the report used to diagnose CI failures.
+                Assertions.fail("Unexpected exception for " + tableNum + " tables, " + edgeNum
+                        + " edges, limit " + limit.get(i) + ":\n" + originalPlanStr + "\n"
+                        + ExceptionUtils.getStackTrace(ex), ex);
             }
         }
     }

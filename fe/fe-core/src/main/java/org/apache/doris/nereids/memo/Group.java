@@ -44,6 +44,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.text.DecimalFormat;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -75,6 +76,10 @@ public class Group {
     private final Map<PhysicalProperties, Pair<Cost, GroupExpression>> lowestCostPlans = Maps.newLinkedHashMap();
 
     private boolean isExplored = false;
+
+    // A regular parent has a strictly greater rank than each child. Removed alternatives need not lower it.
+    // -1 means that rewrite-mode mutations have invalidated this certificate.
+    private int topologicalRank = -1;
 
     private Statistics statistics;
 
@@ -142,6 +147,7 @@ public class Group {
             physicalExpressions.add(groupExpression);
         }
         groupExpression.setOwnerGroup(this);
+        updateTopologicalRank(groupExpression);
         return groupExpression;
     }
 
@@ -156,11 +162,72 @@ public class Group {
     public void addLogicalExpression(GroupExpression groupExpression) {
         groupExpression.setOwnerGroup(this);
         logicalExpressions.add(groupExpression);
+        updateTopologicalRank(groupExpression);
     }
 
     public void addPhysicalExpression(GroupExpression groupExpression) {
         groupExpression.setOwnerGroup(this);
         physicalExpressions.add(groupExpression);
+        updateTopologicalRank(groupExpression);
+    }
+
+    int getTopologicalRank() {
+        return topologicalRank;
+    }
+
+    void invalidateTopologicalRank() {
+        topologicalRank = -1;
+    }
+
+    void initializeTopologicalRank() {
+        topologicalRank = 0;
+        for (GroupExpression expression : logicalExpressions) {
+            updateTopologicalRank(expression);
+        }
+        for (GroupExpression expression : physicalExpressions) {
+            updateTopologicalRank(expression);
+        }
+    }
+
+    void updateTopologicalRank(GroupExpression expression) {
+        if (topologicalRank < 0) {
+            return;
+        }
+        int newRank = topologicalRank;
+        for (Group child : expression.children()) {
+            Preconditions.checkState(child != this && child.topologicalRank >= 0,
+                    "Regular expressions must reference ranked child groups");
+            newRank = Math.max(newRank, child.topologicalRank + 1);
+        }
+        if (newRank == topologicalRank) {
+            return;
+        }
+        topologicalRank = newRank;
+        if (parentExpressions.isEmpty()) {
+            return;
+        }
+        ArrayDeque<Group> pending = new ArrayDeque<>();
+        pending.add(this);
+        while (!pending.isEmpty()) {
+            Group child = pending.removeFirst();
+            for (GroupExpression parentExpression : child.parentExpressions.keySet()) {
+                Group parent = parentExpression.getOwnerGroup();
+                // Temporary expressions have no owner; a newly constructed group is ranked on registration.
+                if (parent == null || parent.topologicalRank < 0) {
+                    continue;
+                }
+                if (parent == child) {
+                    Preconditions.checkState(parentExpression.getPlan() instanceof PhysicalDistribute
+                                    || parentExpression.getPlan() instanceof PhysicalQuickSort,
+                            "Only enforcers may reference their own group");
+                    continue;
+                }
+                if (parent.topologicalRank <= child.topologicalRank) {
+                    parent.topologicalRank = child.topologicalRank + 1;
+                    pending.addLast(parent);
+                }
+            }
+        }
     }
 
     public List<GroupExpression> getLogicalExpressions() {
