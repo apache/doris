@@ -22,7 +22,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.monitor.jvm.JvmInfo;
 import org.apache.doris.monitor.jvm.JvmStats;
+import org.apache.doris.monitor.jvm.JvmStats.BufferPool;
 import org.apache.doris.monitor.jvm.JvmStats.GarbageCollector;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
@@ -57,6 +59,11 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String JVM_YOUNG_SIZE_BYTES = "jvm_young_size_bytes";
     private static final String JVM_OLD_SIZE_BYTES = "jvm_old_size_bytes";
     private static final String JVM_THREAD = "jvm_thread";
+
+    private static final String JVM_BUFFER_POOL_USED_BYTES = "jvm_buffer_pool_used_bytes";
+    private static final String JVM_BUFFER_POOL_CAPACITY_BYTES = "jvm_buffer_pool_capacity_bytes";
+    private static final String JVM_BUFFER_POOL_COUNT = "jvm_buffer_pool_count";
+    private static final String JVM_BUFFER_POOL_MAX_BYTES = "jvm_buffer_pool_max_bytes";
 
     private static final String JVM_GC = "jvm_gc";
 
@@ -145,6 +152,36 @@ public class PrometheusMetricVisitor extends MetricVisitor {
                 .append(threads.getThreadsTimedWaitingCount()).append("\n");
         sb.append(JVM_THREAD).append("{type=\"terminated_count\"} ")
                 .append(threads.getThreadsTerminatedCount()).append("\n");
+
+        // buffer pools — emit each metric family in a separate loop so all lines per family are contiguous
+        Collection<BufferPool> bufferPools = jvmStats.getBufferPools();
+
+        sb.append(Joiner.on(" ").join(HELP, JVM_BUFFER_POOL_USED_BYTES, "jvm buffer pool memory used\n"));
+        sb.append(Joiner.on(" ").join(TYPE, JVM_BUFFER_POOL_USED_BYTES, "gauge\n"));
+        for (BufferPool bufferPool : bufferPools) {
+            sb.append(JVM_BUFFER_POOL_USED_BYTES).append("{name=\"").append(bufferPool.getName()).append("\"} ")
+                    .append(bufferPool.getUsed().getBytes()).append("\n");
+        }
+
+        sb.append(Joiner.on(" ").join(HELP, JVM_BUFFER_POOL_CAPACITY_BYTES, "jvm buffer pool total capacity\n"));
+        sb.append(Joiner.on(" ").join(TYPE, JVM_BUFFER_POOL_CAPACITY_BYTES, "gauge\n"));
+        for (BufferPool bufferPool : bufferPools) {
+            sb.append(JVM_BUFFER_POOL_CAPACITY_BYTES).append("{name=\"").append(bufferPool.getName()).append("\"} ")
+                    .append(bufferPool.getTotalCapacity().getBytes()).append("\n");
+        }
+
+        sb.append(Joiner.on(" ").join(HELP, JVM_BUFFER_POOL_COUNT, "jvm buffer pool count\n"));
+        sb.append(Joiner.on(" ").join(TYPE, JVM_BUFFER_POOL_COUNT, "gauge\n"));
+        for (BufferPool bufferPool : bufferPools) {
+            sb.append(JVM_BUFFER_POOL_COUNT).append("{name=\"").append(bufferPool.getName()).append("\"} ")
+                    .append(bufferPool.getCount()).append("\n");
+        }
+
+        // buffer pool max bytes
+        sb.append(Joiner.on(" ").join(HELP, JVM_BUFFER_POOL_MAX_BYTES, "jvm buffer pool max memory\n"));
+        sb.append(Joiner.on(" ").join(TYPE, JVM_BUFFER_POOL_MAX_BYTES, "gauge\n"));
+        sb.append(JVM_BUFFER_POOL_MAX_BYTES).append("{name=\"direct\", type=\"max\"} ")
+                .append(JvmInfo.jvmInfo().getMem().getDirectMemoryMax().getBytes()).append("\n");
         return;
     }
 
