@@ -254,10 +254,6 @@ struct OlapReaderStatistics {
     int64_t block_fetch_ns = 0; // time of rowset reader's `next_batch()` call
     int64_t block_load_ns = 0;
     int64_t blocks_load = 0;
-    // Not used any more, will be removed after non-vectorized code is removed
-    int64_t block_seek_num = 0;
-    // Not used any more, will be removed after non-vectorized code is removed
-    int64_t block_seek_ns = 0;
 
     // block_load_ns
     //      block_init_ns

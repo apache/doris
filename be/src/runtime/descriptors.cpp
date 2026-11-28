@@ -287,15 +287,7 @@ std::string IcebergTableDescriptor::debug_string() const {
 }
 
 MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tdesc)
-        : TableDescriptor(tdesc),
-          _region(tdesc.mcTable.region),
-          _project(tdesc.mcTable.project),
-          _table(tdesc.mcTable.table),
-          _odps_url(tdesc.mcTable.odps_url),
-          _tunnel_url(tdesc.mcTable.tunnel_url),
-          _access_key(tdesc.mcTable.access_key),
-          _secret_key(tdesc.mcTable.secret_key),
-          _public_access(tdesc.mcTable.public_access) {
+        : TableDescriptor(tdesc), _project(tdesc.mcTable.project), _table(tdesc.mcTable.table) {
     if (tdesc.mcTable.__isset.endpoint) {
         _endpoint = tdesc.mcTable.endpoint;
     } else {
@@ -315,8 +307,8 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
     } else {
         static const std::string MC_ACCESS_KEY = "mc.access_key";
         static const std::string MC_SECRET_KEY = "mc.secret_key";
-        _props.insert({MC_ACCESS_KEY, _access_key});
-        _props.insert({MC_SECRET_KEY, _secret_key});
+        _props.insert({MC_ACCESS_KEY, tdesc.mcTable.access_key});
+        _props.insert({MC_SECRET_KEY, tdesc.mcTable.secret_key});
     }
 }
 
@@ -447,9 +439,6 @@ void TupleDescriptor::to_protobuf(PTupleDescriptor* ptuple) const {
 std::string TupleDescriptor::debug_string() const {
     std::stringstream out;
     out << "Tuple(id=" << _id;
-    if (_table_desc != nullptr) {
-        //out << " " << _table_desc->debug_string();
-    }
 
     out << " slots=[";
     for (size_t i = 0; i < _slots.size(); ++i) {
