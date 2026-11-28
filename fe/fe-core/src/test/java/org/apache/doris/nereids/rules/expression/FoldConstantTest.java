@@ -30,8 +30,12 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -133,6 +137,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -564,6 +569,25 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 new VarcharLiteral("-600.123456"));
         rewritten = executor.rewrite(secondMicrosecondAdd, context);
         Assertions.assertEquals(secondMicrosecondAdd, rewritten);
+    }
+
+    @Test
+    void testFoldTimeCompare() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+        assertRewrite(new LessThan(new TimeV2Literal("10:15:30"), new TimeV2Literal("11:00:00")),
+                BooleanLiteral.TRUE);
+        assertRewrite(new LessThanEqual(new TimeV2Literal("11:00:00"), new TimeV2Literal("10:15:30")),
+                BooleanLiteral.FALSE);
+        assertRewrite(new GreaterThanEqual(new TimeV2Literal("10:15:30"), new TimeV2Literal("10:15:30")),
+                BooleanLiteral.TRUE);
+        assertRewrite(new EqualTo(new TimeV2Literal(TimeV2Type.of(6), "10:15:30.000001"),
+                new TimeV2Literal(TimeV2Type.of(6), "10:15:30.000001")), BooleanLiteral.TRUE);
+        assertRewrite(new LessThan(new TimeV2Literal("-00:00:01"), new TimeV2Literal("00:00:00")),
+                BooleanLiteral.TRUE);
+        assertRewrite(new GreaterThan(new TimeV2Literal("838:59:59"), new TimeV2Literal("838:59:58")),
+                BooleanLiteral.TRUE);
     }
 
     @Test

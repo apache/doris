@@ -296,4 +296,36 @@ public class TimeV2LiteralTest {
         return data;
     }
 
+    @Test
+    public void testCompare() {
+        checkCompare(-1, "10:15:30", "11:00:00");
+        checkCompare(0, "10:15:30", "10:15:30");
+        checkCompare(1, "11:00:00", "10:15:30");
+        checkCompare(-1, "10:15:30.000001", "10:15:30.000002");
+        checkCompare(1, "10:15:30.000002", "10:15:30.000001");
+        checkCompare(0, "10:15:30.100", "10:15:30.1");
+        // TIME supports negative values and values larger than 24 hours
+        checkCompare(-1, "-10:15:30", "10:15:30");
+        checkCompare(-1, "-10:15:30", "-10:15:29");
+        checkCompare(-1, "-10:15:30.000002", "-10:15:30.000001");
+        checkCompare(1, "100:00:00", "99:59:59");
+        checkCompare(-1, "838:59:58", "838:59:59");
+    }
+
+    @Test
+    public void testCompareWithOtherTypes() {
+        TimeV2Literal time = new TimeV2Literal(TimeV2Type.of(0), "10:15:30");
+        Assertions.assertThrows(RuntimeException.class, () -> time.compareTo(new StringLiteral("10:15:30")));
+        Assertions.assertThrows(RuntimeException.class, () -> time.compareTo(new IntegerLiteral(1030)));
+        Assertions.assertThrows(RuntimeException.class,
+                () -> time.compareTo(new DateTimeV2Literal(DateTimeV2Type.of(0), "2020-01-10 10:15:30")));
+    }
+
+    private static void checkCompare(int expected, String left, String right) {
+        TimeV2Literal leftLiteral = new TimeV2Literal(left);
+        TimeV2Literal rightLiteral = new TimeV2Literal(right);
+        Assertions.assertEquals(expected, leftLiteral.compareTo(rightLiteral));
+        Assertions.assertEquals(-expected, rightLiteral.compareTo(leftLiteral));
+    }
+
 }
