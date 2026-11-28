@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits> // IWYU pragma: keep
+#include <type_traits>
 
 #include "common/cast_set.h"
 #include "util/bit_stream_utils.inline.h"
@@ -372,13 +373,24 @@ size_t RleDecoder<T>::get_values(T* values, size_t num_values) {
             read_num += read_this_time;
         } else if (literal_count_ > 0) {
             read_this_time = std::min((size_t)literal_count_, read_this_time);
-            for (int i = 0; i < read_this_time; ++i) {
-                bool result = bit_reader_.GetValue(bit_width_, values);
-                DCHECK(result);
-                values++;
+            size_t decoded = 0;
+            if constexpr (std::is_same_v<T, uint8_t>) {
+                // BitPacking unpacks in blocks of 32 values.
+                if (bit_width_ == 1 && read_this_time >= 32) {
+                    decoded = bit_reader_.GetBitValues(read_this_time, values);
+                }
             }
-            literal_count_ -= read_this_time;
-            read_num += read_this_time;
+            for (; decoded < read_this_time; ++decoded) {
+                if (UNLIKELY(!bit_reader_.GetValue(bit_width_, values + decoded))) {
+                    break;
+                }
+            }
+            values += decoded;
+            literal_count_ -= decoded;
+            read_num += decoded;
+            if (UNLIKELY(decoded != read_this_time)) {
+                return read_num;
+            }
         } else {
             if (!ReadHeader()) {
                 return read_num;

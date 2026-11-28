@@ -19,8 +19,13 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
+#include <vector>
 
+#include "core/assert_cast.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
@@ -175,6 +180,56 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderRandom) {
                                      segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>,
                                      segment_v2::RlePageDecoder<FieldType::OLAP_FIELD_TYPE_BOOL>>(
             bools.get(), size);
+}
+
+TEST_F(RlePageTest, BooleanBatchReadAcrossRuns) {
+    constexpr auto type = FieldType::OLAP_FIELD_TYPE_BOOL;
+    std::vector<uint8_t> values(1536);
+    for (size_t i = 128; i < 1392; ++i) {
+        values[i] = (i + 1) % 2;
+    }
+    std::fill(values.begin() + 1392, values.end(), 1);
+
+    segment_v2::PageBuilder* builder = nullptr;
+    ASSERT_TRUE(segment_v2::RlePageBuilder<type>::create(&builder, PageBuilderOptions {}).ok());
+    std::unique_ptr<segment_v2::PageBuilder> page_builder(builder);
+    size_t count = values.size();
+    ASSERT_TRUE(page_builder->add(values.data(), &count).ok());
+    ASSERT_EQ(values.size(), count);
+    OwnedSlice page;
+    ASSERT_TRUE(page_builder->finish(&page).ok());
+
+    PageDecoderOptions options;
+    segment_v2::RlePageDecoder<type> decoder(page.slice(), options);
+    ASSERT_TRUE(decoder.init().ok());
+    MutableColumnPtr column = ColumnUInt8::create();
+    auto& data = assert_cast<ColumnUInt8&>(*column).get_data();
+    data.push_back(1);
+    size_t offset = 0;
+    for (size_t batch_size : {131, 397, 65, 1000}) {
+        size_t n = batch_size;
+        ASSERT_TRUE(decoder.next_batch(&n, column).ok());
+        ASSERT_EQ(std::min(batch_size, values.size() - offset), n);
+        offset += n;
+        ASSERT_EQ(offset, decoder.current_index());
+        ASSERT_EQ(offset + 1, data.size());
+    }
+    ASSERT_EQ(values.size(), offset);
+    ASSERT_EQ(1, data[0]);
+    EXPECT_TRUE(std::equal(values.begin(), values.end(), data.begin() + 1));
+
+    ASSERT_TRUE(decoder.seek_to_position_in_page(135).ok());
+    const segment_v2::rowid_t rowids[] = {135, 137, 167};
+    size_t n = std::size(rowids);
+    ASSERT_TRUE(decoder.read_by_rowids(rowids, 0, &n, column).ok());
+    ASSERT_EQ(std::size(rowids), n);
+    for (size_t i = 0; i < n; ++i) {
+        EXPECT_EQ(values[rowids[i]], data[values.size() + 1 + i]);
+    }
+    n = 133;
+    ASSERT_TRUE(decoder.next_batch(&n, column).ok());
+    ASSERT_EQ(133, n);
+    EXPECT_TRUE(std::equal(values.begin() + 168, values.begin() + 168 + n, data.end() - n));
 }
 
 TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {

@@ -137,6 +137,28 @@ bool BitReader::GetValue(int num_bits, T* v) {
     return true;
 }
 
+inline size_t BitReader::GetBitValues(size_t num_values, uint8_t* values) {
+    const size_t available = static_cast<size_t>(max_bytes_ - byte_offset_) * 8 - bit_offset_;
+    num_values = std::min(num_values, available);
+    const size_t prefix = std::min(num_values, static_cast<size_t>((8 - bit_offset_ % 8) % 8));
+    for (size_t i = 0; i < prefix; ++i) {
+        const bool result = GetValue(1, values + i);
+        DCHECK(result);
+    }
+    if (prefix == num_values) {
+        return prefix;
+    }
+
+    const int offset = byte_offset_ + bit_offset_ / 8;
+    const auto decoded = BitPacking::UnpackValues<uint8_t, 1>(buffer_ + offset, max_bytes_ - offset,
+                                                              num_values - prefix, values + prefix)
+                                 .second;
+    // Advance by the consumed bits, since the last output may end inside a byte.
+    const bool advanced = Advance(decoded);
+    DCHECK(advanced);
+    return prefix + decoded;
+}
+
 inline void BitReader::Rewind(int num_bits) {
     bit_offset_ -= num_bits;
     if (bit_offset_ >= 0) {

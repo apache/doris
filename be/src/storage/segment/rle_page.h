@@ -18,6 +18,8 @@
 #pragma once
 
 #include "common/cast_set.h"
+#include "core/assert_cast.h"
+#include "core/column/column_vector.h"
 #include "storage/field_type.h"           // for FieldType
 #include "storage/segment/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "storage/segment/page_builder.h" // for PageBuilder
@@ -219,14 +221,23 @@ public:
         }
 
         size_t to_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
-        size_t remaining = to_fetch;
-        bool result = false;
-        CppType value;
-        while (remaining > 0) {
-            result = _rle_decoder.Get(&value);
-            DCHECK(result);
-            dst->insert_data((char*)(&value), SIZE_OF_TYPE);
-            remaining--;
+        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BOOL) {
+            auto& data = assert_cast<ColumnUInt8&>(*dst).get_data();
+            const size_t old_size = data.size();
+            data.resize(old_size + to_fetch);
+            const size_t decoded = _rle_decoder.get_values(data.data() + old_size, to_fetch);
+            if (UNLIKELY(decoded != to_fetch)) {
+                data.resize_assume_reserved(old_size);
+                return Status::Corruption("Truncated boolean RLE page: expected {} values, got {}",
+                                          to_fetch, decoded);
+            }
+        } else {
+            CppType value;
+            for (size_t i = 0; i < to_fetch; ++i) {
+                bool result = _rle_decoder.Get(&value);
+                DCHECK(result);
+                dst->insert_data(reinterpret_cast<const char*>(&value), SIZE_OF_TYPE);
+            }
         }
 
         _cur_index += to_fetch;
