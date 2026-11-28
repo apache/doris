@@ -32,10 +32,12 @@
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/file_factory.h"
 #include "io/fs/hdfs_file_reader.h"
+#include "io/fs/read_ahead_io_resources.h"
 #include "io/fs/read_ahead_metrics.h"
 #include "io/fs/read_io_trace_test_util.h"
+#include "runtime/query_context.h"
 #include "storage/iterators.h"
-#include "storage/segment/column_read_ahead_resources.h"
+#include "testutil/mock/mock_query_context.h"
 #include "util/time.h"
 
 namespace doris::io {
@@ -478,29 +480,18 @@ TEST_F(AsyncCachedRemoteFileReaderTest, delayed_hole_fill_keeps_cached_reader_op
 
 TEST_F(AsyncCachedRemoteFileReaderTest, read_ahead_requires_async_cache_writes) {
     const auto old_deploy_mode = config::deploy_mode;
-    const bool old_read_ahead = config::enable_query_read_ahead;
-    Defer restore {[&]() {
-        config::deploy_mode = old_deploy_mode;
-        config::enable_query_read_ahead = old_read_ahead;
-    }};
+    Defer restore {[&]() { config::deploy_mode = old_deploy_mode; }};
     config::deploy_mode = "cloud";
-    config::enable_query_read_ahead = true;
     config::enable_async_file_cache_write = false;
     create_cache("read_ahead_requires_async_cache_writes");
     ASSERT_FALSE(cache()->async_write_manager()->accepting());
-    ASSERT_FALSE(segment_v2::ColumnReadAheadResources::enabled());
+    auto query_options = create_fake_query_options();
+    query_options.__set_enable_query_read_ahead(true);
+    auto query = MockQueryContext::create(TUniqueId {}, ExecEnv::GetInstance(), query_options);
+    EXPECT_EQ(query->io_context().query_read_ahead, nullptr);
 
     auto source = std::make_shared<CountingFileReader>(open_remote_file());
     auto reader = create_reader(source);
-    OlapReaderStatistics statistics;
-    StorageReadOptions read_options(statistics);
-    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-    std::shared_ptr<const segment_v2::ColumnReadAheadResources> read_ahead;
-    ASSERT_TRUE(segment_v2::ColumnReadAheadResources::create_for_query(
-                        reader, ExecEnv::GetInstance(), nullptr, read_options, &read_ahead)
-                        .ok());
-    EXPECT_EQ(read_ahead, nullptr);
-
     std::string data(16, '\0');
     size_t bytes_read = 0;
     ASSERT_TRUE(reader->read_at(1024, Slice(data), &bytes_read).ok());
@@ -510,9 +501,6 @@ TEST_F(AsyncCachedRemoteFileReaderTest, read_ahead_requires_async_cache_writes) 
     EXPECT_EQ(source->read_count(), 1);
 
     config::enable_async_file_cache_write = true;
-    EXPECT_TRUE(segment_v2::ColumnReadAheadResources::enabled());
-    config::enable_query_read_ahead = false;
-    EXPECT_FALSE(segment_v2::ColumnReadAheadResources::enabled());
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest, cached_read_ahead_does_not_submit_writeback) {
@@ -527,7 +515,6 @@ TEST_F(AsyncCachedRemoteFileReaderTest, cached_read_ahead_does_not_submit_writeb
 
     auto* env = ExecEnv::GetInstance();
     const auto old_deploy_mode = config::deploy_mode;
-    const bool old_read_ahead = config::enable_query_read_ahead;
     auto old_scheduler = std::move(env->_file_range_read_scheduler);
     auto old_partial_manager = std::move(env->_partial_block_writeback_manager);
     std::unique_ptr<ThreadPool> executor;
@@ -535,10 +522,8 @@ TEST_F(AsyncCachedRemoteFileReaderTest, cached_read_ahead_does_not_submit_writeb
         env->_file_range_read_scheduler = std::move(old_scheduler);
         env->_partial_block_writeback_manager = std::move(old_partial_manager);
         config::deploy_mode = old_deploy_mode;
-        config::enable_query_read_ahead = old_read_ahead;
     }};
     config::deploy_mode = "cloud";
-    config::enable_query_read_ahead = true;
     ASSERT_TRUE(ThreadPoolBuilder("CachedReadAheadTest").set_max_threads(1).build(&executor).ok());
     ASSERT_TRUE(
             FileRangeReadScheduler::create({.max_bytes_per_query = 1_mb, .max_bytes_per_be = 1_mb},
@@ -560,22 +545,24 @@ TEST_F(AsyncCachedRemoteFileReaderTest, cached_read_ahead_does_not_submit_writeb
     read_options.use_page_cache = false;
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.io_ctx.file_cache_stats = &cache_statistics;
-    std::shared_ptr<const segment_v2::ColumnReadAheadResources> read_ahead;
-    ASSERT_TRUE(segment_v2::ColumnReadAheadResources::create_for_query(
-                        reader, env, env->file_range_read_scheduler()->create_context(),
-                        read_options, &read_ahead)
+    ASSERT_TRUE(QueryReadAheadResources::create(env->file_range_read_scheduler(),
+                                                env->partial_block_writeback_manager(),
+                                                &read_options.io_ctx.query_read_ahead)
                         .ok());
+    statistics.read_ahead_stats = std::make_shared<ReadAheadStatistics>();
+    auto read_ahead = FileReadAheadResources::create(reader, read_options.io_ctx,
+                                                     statistics.read_ahead_stats, {});
     ASSERT_NE(read_ahead, nullptr);
     const FileRange range {.offset = 1024, .size = data.size()};
-    auto submitted = read_ahead->scheduler->try_submit({range}, reader, read_ahead->io_context,
-                                                       read_ahead->context);
+    auto submitted = read_ahead->query_resources().scheduler->try_submit(
+            {range}, reader, read_ahead->io_context, read_ahead->query_resources().context);
     ASSERT_TRUE(submitted.accepted());
     ReadAheadRangeBuffer buffer(read_ahead->statistics);
     buffer.register_slice(
             range,
             std::make_shared<ReadAheadRangeBuffer::Range>(ReadAheadRangeBuffer::Range {
                     .read = submitted.reads[0],
-                    .consumer = read_ahead->options.range_consumer_factory()}),
+                    .consumer = read_ahead->callbacks.range_consumer_factory()}),
             0);
     Status status;
     ASSERT_TRUE(buffer.try_read(range.offset, Slice(data), &status));

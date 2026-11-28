@@ -33,9 +33,9 @@ ReadAheadIterator<Base>::~ReadAheadIterator() = default;
 template <typename Base>
 Status ReadAheadIterator<Base>::init(const ColumnIteratorOptions& opts) {
     _read_ahead.reset();
-    if (opts.read_ahead != nullptr) {
+    if (opts.file_read_ahead != nullptr) {
         _read_ahead = std::make_unique<ColumnReadAheadController>(this->get_reader(), opts.stats,
-                                                                  opts.read_ahead);
+                                                                  opts.file_read_ahead);
     }
     // A predicate dictionary column may load its last data page in Base::init(). Bind resources
     // first so its virtual page hooks can retry a corrupt probe without starting a scan window.

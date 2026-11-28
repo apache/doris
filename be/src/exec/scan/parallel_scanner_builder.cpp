@@ -55,12 +55,14 @@ io::IOContext create_preload_io_context(RuntimeState* state, OlapReaderStatistic
     if (state == nullptr) {
         return io_ctx;
     }
+    if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
+        io_ctx = query_ctx->io_context();
+    }
+    io_ctx.reader_type = ReaderType::READER_QUERY;
     io_ctx.query_id = &state->query_id();
+    io_ctx.file_cache_stats = preload_stats ? &preload_stats->file_cache_stats : nullptr;
     io_ctx.read_file_cache = state->query_options().enable_file_cache;
     io_ctx.is_disposable = state->query_options().disable_file_cache;
-    if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
-        io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
-    }
     return io_ctx;
 }
 

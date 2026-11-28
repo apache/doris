@@ -141,6 +141,9 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.reader_type = reader_type;
     reader_params.read_changelog = tablet->is_changelog_tablet();
     reader_params.runtime_state = runtime_state;
+    if (runtime_state != nullptr) {
+        reader_params.io_ctx.query_id = &runtime_state->query_id();
+    }
     if (key_range.has_value()) {
         RETURN_IF_ERROR(set_key_range(&reader_params, cur_tablet_schema, *key_range));
     }
@@ -376,6 +379,9 @@ Status Merger::vertical_compact_one_group(
     reader_params.reader_type = reader_type;
     reader_params.read_changelog = tablet->is_changelog_tablet();
     reader_params.runtime_state = runtime_state;
+    if (runtime_state != nullptr) {
+        reader_params.io_ctx.query_id = &runtime_state->query_id();
+    }
     reader_params.enable_sparse_optimization = enable_sparse_optimization;
     if (key_range.has_value()) {
         RETURN_IF_ERROR(set_key_range(&reader_params, tablet_schema, *key_range));

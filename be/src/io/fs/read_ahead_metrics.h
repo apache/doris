@@ -38,7 +38,7 @@ struct ReadAheadStatistics {
     RuntimeProfile::Counter page_advance_time {TUnit::TIME_NS};
     /// Window maintenance sub-timers can overlap initialization and page advancement.
     RuntimeProfile::Counter window_discard_time {TUnit::TIME_NS};
-    /// Exact-rowid planning for point reads and dependent nested data, including extensions.
+    /// Exact-rowid planning for dependent or filtered column reads, including extensions.
     RuntimeProfile::Counter current_batch_plan_time {TUnit::TIME_NS};
     /// Shared sub-timer of initialization, page advancement and exact-rowid planning.
     RuntimeProfile::Counter window_extend_time {TUnit::TIME_NS};

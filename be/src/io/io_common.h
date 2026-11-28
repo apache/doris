@@ -22,6 +22,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -43,6 +44,7 @@ enum class ReaderType : uint8_t {
 namespace io {
 
 class RemoteScanCacheWriteLimiter;
+struct QueryReadAheadResources;
 enum class CacheWriteMode : uint8_t;
 
 enum class FileCacheMissPolicy : uint8_t {
@@ -305,6 +307,10 @@ struct IOContext {
     // Scanner-local ingestion counters shared by physical decoding and load materialization.
     int64_t load_filtered_rows = 0;
     int64_t load_unselected_rows = 0;
+
+    // Query-wide policy and admission/cancellation context, created by QueryContext.
+    // Scanner/segment IOContext copies share it; no file or reader-local stats are bound here.
+    std::shared_ptr<const QueryReadAheadResources> query_read_ahead {};
 };
 
 } // namespace io

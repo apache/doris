@@ -1929,8 +1929,6 @@ DECLARE_mInt32(segment_file_cache_consume_rowids_batch_size);
 DECLARE_mBool(enable_query_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for query
 DECLARE_mInt32(query_segment_file_cache_prefetch_block_size);
-// Enable exact range read-ahead for query data pages
-DECLARE_mBool(enable_query_read_ahead);
 // Opt-in interval/lifecycle diagnostics, buffered and written to separate JSONL files.
 DECLARE_mBool(enable_read_io_trace);
 DECLARE_String(read_io_trace_dir);

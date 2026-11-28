@@ -66,7 +66,6 @@ class SharedPredicate;
 namespace segment_v2 {
 
 class ColumnIterator;
-struct ColumnReadAheadResources;
 class RowRanges;
 class IndexIterator;
 
@@ -122,7 +121,6 @@ private:
     [[nodiscard]] Status _lazy_init(Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
     // Bind shared query services before initializing the per-column read-ahead controllers.
-    [[nodiscard]] Status _init_query_read_ahead();
     [[nodiscard]] Status _init_column_iterators();
     [[nodiscard]] Status _init_index_iterators();
     // Pass the pruned row selection and dependency role to every independently planned column.
@@ -457,7 +455,6 @@ private:
     std::vector<std::unique_ptr<ColumnIterator>> _owned_seek_column_iterators;
 
     io::FileReaderSPtr _file_reader;
-    std::shared_ptr<const ColumnReadAheadResources> _read_ahead_resources;
 
     // Number of selected rows in the current batch.
     uint16_t _selected_size;

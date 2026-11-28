@@ -158,6 +158,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     _reader_context.reader_type = read_params.reader_type;
+    _reader_context.io_ctx = read_params.io_ctx;
     _reader_context.read_changelog = read_params.read_changelog;
     _reader_context.version = read_params.version;
     _reader_context.variant_compaction_paths = read_params.variant_compaction_paths;

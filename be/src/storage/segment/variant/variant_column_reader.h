@@ -195,7 +195,7 @@ public:
                 const io::IOContext* source_io_ctx = nullptr);
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                        const StorageReadOptions* opt, bool enable_read_ahead = false) override;
+                        const StorageReadOptions* opt) override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,

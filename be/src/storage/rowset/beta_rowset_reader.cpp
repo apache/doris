@@ -213,30 +213,17 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.changelog_tso_idx = tso_ordinal;
     }
     _read_options.read_orderby_key_columns = _read_context->read_orderby_key_columns;
+    _read_options.io_ctx = _read_context->io_ctx;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
     _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
+    // Background readers keep disposable cache semantics and never inherit query read-ahead.
+    if (_read_context->reader_type != ReaderType::READER_QUERY) {
+        _read_options.io_ctx.is_disposable = true;
+        _read_options.io_ctx.query_read_ahead.reset();
+    }
     _read_options.runtime_state = _read_context->runtime_state;
     _read_options.output_columns = _read_context->output_columns;
-    _read_options.io_ctx.reader_type = _read_context->reader_type;
-    _read_options.io_ctx.is_disposable = _read_context->reader_type != ReaderType::READER_QUERY;
     _read_options.target_cast_type_for_variants = _read_context->target_cast_type_for_variants;
-    if (_read_context->runtime_state != nullptr) {
-        _read_options.io_ctx.query_id = &_read_context->runtime_state->query_id();
-        if (_read_context->reader_type == ReaderType::READER_QUERY) {
-            _read_options.io_ctx.read_file_cache =
-                    _read_context->runtime_state->query_options().enable_file_cache;
-            _read_options.io_ctx.is_disposable =
-                    _read_context->runtime_state->query_options().disable_file_cache;
-            if (auto* query_ctx = _read_context->runtime_state->get_query_ctx();
-                query_ctx != nullptr) {
-                _read_options.io_ctx.remote_scan_cache_write_limiter =
-                        query_ctx->remote_scan_cache_write_limiter();
-            }
-            _read_options.io_ctx.inverted_index_snii_read_no_write_file_cache =
-                    _read_context->runtime_state->query_options()
-                            .inverted_index_snii_read_no_write_file_cache;
-        }
-    }
 
     if (_read_context->condition_cache_digest) {
         for (const auto& key_range : _read_options.key_ranges) {

@@ -43,6 +43,7 @@ class TabletSchema;
 
 struct RowsetReaderContext {
     ReaderType reader_type = ReaderType::READER_QUERY;
+    io::IOContext io_ctx;
     bool read_changelog = false;
     Version version {-1, -1};
     // Set only by compaction, alongside its extended tablet_schema.

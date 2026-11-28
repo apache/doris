@@ -131,6 +131,7 @@ public:
         // Set only by compaction, alongside its extended tablet_schema.
         VariantCompactionPathsSPtr variant_compaction_paths = nullptr;
         ReaderType reader_type = ReaderType::READER_QUERY;
+        io::IOContext io_ctx;
         bool read_changelog = false;
         bool direct_mode = false;
         bool aggregation = false;
