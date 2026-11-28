@@ -42,162 +42,218 @@ github:
     merge:   false
     rebase:  false
   rulesets:
+    # Context-only checks preserve the existing GitHub Actions and TeamCity status matching.
     # Performance reports results without gating these branches.
     - name: Master branch protection
-      type: branch
-      branches:
-        includes:
-          - master
-      restrict_deletion: true
-      restrict_force_push: true
-      required_pull_request_reviews:
-        dismiss_stale_reviews: true
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-      required_status_checks_strict: false
-      required_status_checks:
-        - License Check
-        - Check for secrets
-        - Clang Formatter
-        - CheckStyle
-        - TeamCity/p0
-        - TeamCity/nonconcurrent
-        - TeamCity/external
-        - TeamCity/cloud_p0
-        - TeamCity/vault_p0
-        - TeamCity/feut
-        - TeamCity/beut
-        - Build Third Party Libraries (Linux)
-        - Build Third Party Libraries (macOS)
-        - Build Third Party Libraries (macOS-arm64)
-        - TeamCity/compile
-        - code-review
-        - TeamCity/cloudut
+      target: branch
+      enforcement: active
+      conditions:
+        ref_name:
+          include:
+            - refs/heads/master
+          exclude: []
+      rules:
+        - type: deletion
+        - type: non_fast_forward
+        - type: pull_request
+          parameters:
+            required_review_thread_resolution: false
+            dismiss_stale_reviews_on_push: true
+            require_last_push_approval: false
+            require_code_owner_review: true
+            required_approving_review_count: 1
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: License Check
+              - context: Check for secrets
+              - context: Clang Formatter
+              - context: CheckStyle
+              - context: TeamCity/p0
+              - context: TeamCity/nonconcurrent
+              - context: TeamCity/external
+              - context: TeamCity/cloud_p0
+              - context: TeamCity/vault_p0
+              - context: TeamCity/feut
+              - context: TeamCity/beut
+              - context: Build Third Party Libraries (Linux)
+              - context: Build Third Party Libraries (macOS)
+              - context: Build Third Party Libraries (macOS-arm64)
+              - context: TeamCity/compile
+              - context: code-review
+              - context: TeamCity/cloudut
     - name: Release branches 4.2 and 4.1
-      type: branch
-      branches:
-        includes:
-          - branch-4.2
-          - branch-4.1
-      restrict_deletion: true
-      restrict_force_push: true
-      required_pull_request_reviews:
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-      required_status_checks_strict: false
-      required_status_checks:
-        - License Check
-        - Clang Formatter
-        - CheckStyle
-        - Build Broker
-        - TeamCity/feut
-        - TeamCity/beut
-        - TeamCity/cloudut
-        - TeamCity/compile
-        - TeamCity/p0
-        - TeamCity/nonconcurrent
-        - TeamCity/external
-        - TeamCity/cloud_p0
-        - TeamCity/vault_p0
+      target: branch
+      enforcement: active
+      conditions:
+        ref_name:
+          include:
+            - refs/heads/branch-4.2
+            - refs/heads/branch-4.1
+          exclude: []
+      rules:
+        - type: deletion
+        - type: non_fast_forward
+        - type: pull_request
+          parameters:
+            required_review_thread_resolution: false
+            dismiss_stale_reviews_on_push: true
+            require_last_push_approval: false
+            require_code_owner_review: true
+            required_approving_review_count: 1
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: License Check
+              - context: Clang Formatter
+              - context: CheckStyle
+              - context: Build Broker
+              - context: TeamCity/feut
+              - context: TeamCity/beut
+              - context: TeamCity/cloudut
+              - context: TeamCity/compile
+              - context: TeamCity/p0
+              - context: TeamCity/nonconcurrent
+              - context: TeamCity/external
+              - context: TeamCity/cloud_p0
+              - context: TeamCity/vault_p0
     - name: Release branch 4.0
-      type: branch
-      branches:
-        includes:
-          - branch-4.0
-      restrict_deletion: true
-      restrict_force_push: true
-      required_pull_request_reviews:
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-      required_status_checks_strict: false
-      required_status_checks:
-        - License Check
-        - Clang Formatter
-        - CheckStyle
-        - Build Broker
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - Cloud UT (Doris Cloud UT)
-        - COMPILE (DORIS_COMPILE)
-        - P0 Regression (Doris Regression)
-        - NonConcurrent Regression (nonConcurrent)
-        - External Regression (Doris External Regression)
-        - cloud_p0 (Doris Cloud Regression)
-        - vault_p0 (Doris Cloud Regression)
+      target: branch
+      enforcement: active
+      conditions:
+        ref_name:
+          include:
+            - refs/heads/branch-4.0
+          exclude: []
+      rules:
+        - type: deletion
+        - type: non_fast_forward
+        - type: pull_request
+          parameters:
+            required_review_thread_resolution: false
+            dismiss_stale_reviews_on_push: true
+            require_last_push_approval: false
+            require_code_owner_review: true
+            required_approving_review_count: 1
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: License Check
+              - context: Clang Formatter
+              - context: CheckStyle
+              - context: Build Broker
+              - context: FE UT (Doris FE UT)
+              - context: BE UT (Doris BE UT)
+              - context: Cloud UT (Doris Cloud UT)
+              - context: COMPILE (DORIS_COMPILE)
+              - context: P0 Regression (Doris Regression)
+              - context: NonConcurrent Regression (nonConcurrent)
+              - context: External Regression (Doris External Regression)
+              - context: cloud_p0 (Doris Cloud Regression)
+              - context: vault_p0 (Doris Cloud Regression)
     - name: Release branches 3.1 and 3.0
-      type: branch
-      branches:
-        includes:
-          - branch-3.1
-          - branch-3.0
-      restrict_deletion: true
-      restrict_force_push: true
-      required_pull_request_reviews:
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-      required_status_checks_strict: false
-      required_status_checks:
-        - License Check
-        - Clang Formatter
-        - CheckStyle
-        - Build Broker
-        - Build Third Party Libraries (Linux)
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - Cloud UT (Doris Cloud UT)
-        - COMPILE (DORIS_COMPILE)
-        - P0 Regression (Doris Regression)
-        - NonConcurrent Regression (nonConcurrent)
-        - External Regression (Doris External Regression)
-        - cloud_p0 (Doris Cloud Regression)
-        - vault_p0 (Doris Cloud Regression)
+      target: branch
+      enforcement: active
+      conditions:
+        ref_name:
+          include:
+            - refs/heads/branch-3.1
+            - refs/heads/branch-3.0
+          exclude: []
+      rules:
+        - type: deletion
+        - type: non_fast_forward
+        - type: pull_request
+          parameters:
+            required_review_thread_resolution: false
+            dismiss_stale_reviews_on_push: true
+            require_last_push_approval: false
+            require_code_owner_review: true
+            required_approving_review_count: 1
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: License Check
+              - context: Clang Formatter
+              - context: CheckStyle
+              - context: Build Broker
+              - context: Build Third Party Libraries (Linux)
+              - context: FE UT (Doris FE UT)
+              - context: BE UT (Doris BE UT)
+              - context: Cloud UT (Doris Cloud UT)
+              - context: COMPILE (DORIS_COMPILE)
+              - context: P0 Regression (Doris Regression)
+              - context: NonConcurrent Regression (nonConcurrent)
+              - context: External Regression (Doris External Regression)
+              - context: cloud_p0 (Doris Cloud Regression)
+              - context: vault_p0 (Doris Cloud Regression)
     - name: Release branch 2.1
-      type: branch
-      branches:
-        includes:
-          - branch-2.1
-      restrict_deletion: true
-      restrict_force_push: true
-      required_pull_request_reviews:
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-      required_status_checks_strict: false
-      required_status_checks:
-        - License Check
-        - CheckStyle
-        - Build Broker
-        - Build Third Party Libraries (Linux)
-        - COMPILE (DORIS_COMPILE)
-        - External Regression (Doris External Regression)
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - P0 Regression (Doris Regression)
+      target: branch
+      enforcement: active
+      conditions:
+        ref_name:
+          include:
+            - refs/heads/branch-2.1
+          exclude: []
+      rules:
+        - type: deletion
+        - type: non_fast_forward
+        - type: pull_request
+          parameters:
+            required_review_thread_resolution: false
+            dismiss_stale_reviews_on_push: true
+            require_last_push_approval: false
+            require_code_owner_review: true
+            required_approving_review_count: 1
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: License Check
+              - context: CheckStyle
+              - context: Build Broker
+              - context: Build Third Party Libraries (Linux)
+              - context: COMPILE (DORIS_COMPILE)
+              - context: External Regression (Doris External Regression)
+              - context: FE UT (Doris FE UT)
+              - context: BE UT (Doris BE UT)
+              - context: P0 Regression (Doris Regression)
     - name: Release branch 2.0
-      type: branch
-      branches:
-        includes:
-          - branch-2.0
-      restrict_deletion: true
-      restrict_force_push: true
-      required_pull_request_reviews:
-        dismiss_stale_reviews: true
-        required_approving_review_count: 1
-      required_status_checks_strict: false
-      required_status_checks:
-        - License Check
-        - CheckStyle
-        - P0 Regression (Doris Regression)
-        - External Regression (Doris External Regression)
-        - FE UT (Doris FE UT)
-        - BE UT (Doris BE UT)
-        - Build Broker
-        - Build Third Party Libraries (Linux)
-        - Build Third Party Libraries (macOS)
-        - COMPILE (DORIS_COMPILE)
+      target: branch
+      enforcement: active
+      conditions:
+        ref_name:
+          include:
+            - refs/heads/branch-2.0
+          exclude: []
+      rules:
+        - type: deletion
+        - type: non_fast_forward
+        - type: pull_request
+          parameters:
+            required_review_thread_resolution: false
+            dismiss_stale_reviews_on_push: true
+            require_last_push_approval: false
+            require_code_owner_review: false
+            required_approving_review_count: 1
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: License Check
+              - context: CheckStyle
+              - context: P0 Regression (Doris Regression)
+              - context: External Regression (Doris External Regression)
+              - context: FE UT (Doris FE UT)
+              - context: BE UT (Doris BE UT)
+              - context: Build Broker
+              - context: Build Third Party Libraries (Linux)
+              - context: Build Third Party Libraries (macOS)
+              - context: COMPILE (DORIS_COMPILE)
 
   protected_branches:
     # master, branch-4.2 and branch-4.1 use the migrated TeamCity contexts.
