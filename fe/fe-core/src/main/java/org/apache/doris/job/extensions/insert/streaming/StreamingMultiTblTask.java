@@ -124,7 +124,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         this.runningBackendId = runningBackend.getId();
         if (snapshotPhase) {
             int maxParallelism = Math.max(1, Config.streaming_cdc_max_snapshot_parallelism);
-            int autoParallelism = Math.max(1, runningBackend.getCputCores() / 2);
+            int autoParallelism = Math.max(1, runningBackend.getCputCores() / 4);
             int parallelism = Math.min(maxParallelism, Integer.parseInt(sourceProperties.getOrDefault(
                     DataSourceConfigKeys.SNAPSHOT_PARALLELISM, String.valueOf(autoParallelism))));
             if (!sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)
