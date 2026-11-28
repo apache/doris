@@ -501,6 +501,24 @@ protected:
     int64_t _next_rowset_id = 20000;
 };
 
+TEST_F(CloudFileCacheWriteIndexOnlyConfigTest, CoalesceInlineIndexesWithinCacheBlocks) {
+    segment_v2::SegmentIndexFileCacheInfo info;
+    info.add_index_range(0, 2);
+    const std::vector<segment_v2::SegmentIndexFileCacheRange> ranges {
+            {4, 4}, {12, 4}, {37, 2}, {0, 0}, {42, 2}, {49, 2},
+    };
+    EXPECT_EQ(info.add_inline_index_ranges(ranges, 16), 14);
+    ASSERT_EQ(info.index_ranges.size(), 4);
+    EXPECT_EQ(info.index_ranges[0].offset, 0);
+    EXPECT_EQ(info.index_ranges[0].size, 2);
+    EXPECT_EQ(info.index_ranges[1].offset, 4);
+    EXPECT_EQ(info.index_ranges[1].size, 12);
+    EXPECT_EQ(info.index_ranges[2].offset, 37);
+    EXPECT_EQ(info.index_ranges[2].size, 7);
+    EXPECT_EQ(info.index_ranges[3].offset, 49);
+    EXPECT_EQ(info.index_ranges[3].size, 2);
+}
+
 TEST_F(CloudFileCacheWriteIndexOnlyConfigTest, FileWriterOptionsKeepLegacyWhenIndexOnlyDisabled) {
     config::enable_file_cache_write_index_file_only = false;
 
