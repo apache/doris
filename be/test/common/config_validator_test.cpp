@@ -83,6 +83,23 @@ TEST_F(ConfigValidatorTest, Validator) {
     EXPECT_EQ(cfg_validator_2, 8);
 }
 
+TEST_F(ConfigValidatorTest, GroupCommitPlanMode) {
+    const auto old_value = config::group_commit_stream_load_plan_mode;
+    const char* key = "group_commit_stream_load_plan_mode";
+    EXPECT_TRUE(init_from_conf("group_commit_stream_load_plan_mode = master\n"));
+    EXPECT_EQ(config::get_group_commit_stream_load_plan_mode(), GroupCommitPlanMode::MASTER);
+
+    EXPECT_TRUE(config::set_config(key, "non_master_round_robin").ok());
+    EXPECT_EQ(config::get_group_commit_stream_load_plan_mode(),
+              GroupCommitPlanMode::NON_MASTER_ROUND_ROBIN);
+    EXPECT_FALSE(config::set_config(key, "invalid").ok());
+    EXPECT_EQ(config::get_group_commit_stream_load_plan_mode(),
+              GroupCommitPlanMode::NON_MASTER_ROUND_ROBIN);
+    EXPECT_TRUE(config::set_config(key, "round_robin").ok());
+    EXPECT_EQ(config::get_group_commit_stream_load_plan_mode(), GroupCommitPlanMode::ROUND_ROBIN);
+    EXPECT_TRUE(config::set_config(key, old_value).ok());
+}
+
 TEST_F(ConfigValidatorTest, LookupConnectionCacheBlockPoolSize) {
     const auto old_value = config::get_lookup_connection_cache_block_pool_size();
 

@@ -30,11 +30,13 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
 #include <functional>
 #include <future>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -66,6 +68,7 @@
 #include "storage/storage_engine.h"
 #include "util/byte_buffer.h"
 #include "util/client_cache.h"
+#include "util/debug_points.h"
 #include "util/load_util.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -458,6 +461,26 @@ void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
     streaming_load_current_processing->increment(-1);
 }
 
+TNetworkAddress StreamLoadAction::_select_group_commit_planner(
+        const TNetworkAddress& master) const {
+    const auto mode = config::get_group_commit_stream_load_plan_mode();
+    if (mode == config::GroupCommitPlanMode::MASTER) {
+        return master;
+    }
+    const bool non_master_only = mode == config::GroupCommitPlanMode::NON_MASTER_ROUND_ROBIN;
+    auto fes = _exec_env->get_frontends();
+    std::erase_if(fes, [&](const TFrontendInfo& fe) {
+        return fe.process_uuid == 0 || fe.coordinator_address.port <= 0 ||
+               (non_master_only && fe.coordinator_address == master);
+    });
+    if (fes.empty()) {
+        return master;
+    }
+    // get_frontends() snapshots the address-ordered map. Share the cursor across requests on this BE.
+    static std::atomic<uint64_t> next {0};
+    return fes[next.fetch_add(1, std::memory_order_relaxed) % fes.size()].coordinator_address;
+}
+
 Status StreamLoadAction::_process_put(HttpRequest* http_req,
                                       std::shared_ptr<StreamLoadContext> ctx) {
     // Now we use stream
@@ -822,11 +845,17 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
 
 #ifndef BE_TEST
     // plan this load
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     int64_t stream_load_put_start_time = MonotonicNanos();
+    const auto master = _exec_env->cluster_info()->master_fe_addr;
+    const auto planner = ctx->group_commit ? _select_group_commit_planner(master) : master;
+    DBUG_EXECUTE_IF("StreamLoadAction.require_direct_group_commit_plan", {
+        if (ctx->group_commit && planner == master) {
+            return Status::InternalError(
+                    "Expected direct group commit planning on a non-master FE");
+        }
+    });
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, ctx](FrontendServiceConnection& client) {
+            planner.hostname, planner.port, [&request, ctx](FrontendServiceConnection& client) {
                 client->streamLoadPut(ctx->put_result, request);
             }));
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;

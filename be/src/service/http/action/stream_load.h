@@ -30,6 +30,7 @@ class ExecEnv;
 class Status;
 class StreamLoadContext;
 class HttpRequest;
+class TNetworkAddress;
 
 class StreamLoadAction : public HttpHandler {
 public:
@@ -49,6 +50,7 @@ private:
     Status _on_header(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
     Status _handle(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req);
     Status _data_saved_path(HttpRequest* req, std::string* file_path, int64_t file_bytes);
+    TNetworkAddress _select_group_commit_planner(const TNetworkAddress& master) const;
     Status _process_put(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
     Status _can_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx,
                              std::string& group_commit_header, bool& can_group_commit);

@@ -390,6 +390,9 @@ struct TGroupCommitInfo{
     // set by followers that understand selection errors carried in TMasterOpResult
     // statusCode/errMessage; masters must keep throwing for callers without it
     10: optional bool supportsSelectionErrorResult
+    15: optional string tableName
+    // Ask the master whether Group Commit is blocked for tableName.
+    16: optional bool checkTableBlocked
 }
 
 struct TMasterOpRequest {

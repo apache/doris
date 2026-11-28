@@ -69,16 +69,16 @@ suite('test_group_commit_stream_load_multi_follower', 'docker') {
     options.feNum = 3
     options.beNum = 1
     options.cloudMode = true
-    options.useFollowersMode = true
     options.beConfigs.add('enable_java_support=false')
-    options.feConfigs.add('enable_forward_group_commit_stream_load_to_follower=true')
+    options.beConfigs.add('enable_debug_points=true')
+    options.beConfigs.add('group_commit_stream_load_plan_mode=non_master_round_robin')
     options.feConfigs.add('cloud_cluster_check_interval_second=1')
     options.feConfigs.add('heartbeat_interval_second=1')
-    docker(options) {
+    def verifyLoads = {
         awaitUntil(60) {
             def ret = sql_return_maparray """SHOW FRONTENDS"""
             ret.size() == 3
-                    && ret.count { it.Role.contains("FOLLOWER") } == 3
+                    && ret.count { it.Role.contains("OBSERVER") } == (options.useFollowersMode ? 0 : 2)
                     && ret.count { it.IsMaster == "true" } == 1
                     && ret.count { it.Alive == "true" } == 3
         }
@@ -86,7 +86,6 @@ suite('test_group_commit_stream_load_multi_follower', 'docker') {
         def frontendRows = sql_return_maparray """SHOW FRONTENDS"""
         logger.info("show frontends result {}", frontendRows)
         frontendRows.each { row ->
-            assertTrue(row.Role.contains("FOLLOWER"))
             assertEquals("true", row.Alive)
         }
 
@@ -108,16 +107,26 @@ suite('test_group_commit_stream_load_multi_follower', 'docker') {
 
         def expectedRowCount = 0
         def frontends = cluster.getAllFrontends(true).sort { it.index }
-        for (int i = 0; i < 2; i++) {
-            frontends.each { fe ->
-                groupCommitStreamLoad(fe)
-                expectedRowCount += 2
+        def directPlan = 'StreamLoadAction.require_direct_group_commit_plan'
+        GetDebugPoint().enableDebugPointForAllBEs(directPlan)
+        try {
+            for (int i = 0; i < 2; i++) {
+                frontends.each { fe ->
+                    groupCommitStreamLoad(fe)
+                    expectedRowCount += 2
+                }
             }
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs(directPlan)
         }
         getRowCount(expectedRowCount)
 
         def rowCount = sql "select count(*) from ${databaseName}.${tableName}"
         logger.info("rowCount: " + rowCount)
         assertEquals(expectedRowCount, rowCount[0][0])    
+    }
+    for (boolean followers : [true, false]) {
+        options.useFollowersMode = followers
+        docker(options, verifyLoads)
     }
 }

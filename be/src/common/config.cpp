@@ -37,6 +37,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <set>
 #include <string>
@@ -288,6 +289,8 @@ DEFINE_mInt32(download_low_speed_time, "300");
 DEFINE_mBool(enable_batch_download, "true");
 // whether to enable stream load forward endpoint for cloud group commit
 DEFINE_mBool(enable_group_commit_streamload_be_forward, "false");
+// First-stage Group Commit planning: rotate over all FEs, rotate over non-master FEs, or use the master.
+DEFINE_mString(group_commit_stream_load_plan_mode, "round_robin");
 // whether to check md5sum when download
 DEFINE_mBool(enable_download_md5sum_check, "false");
 // download binlog meta timeout, default 30s
@@ -2518,6 +2521,40 @@ static bool is_env_style_key(const std::string& key) {
     return true;
 }
 
+static std::atomic<GroupCommitPlanMode> published_group_commit_plan_mode {
+        GroupCommitPlanMode::ROUND_ROBIN};
+
+static std::optional<GroupCommitPlanMode> parse_group_commit_plan_mode(std::string_view mode) {
+    if (mode == "round_robin") {
+        return GroupCommitPlanMode::ROUND_ROBIN;
+    }
+    if (mode == "non_master_round_robin") {
+        return GroupCommitPlanMode::NON_MASTER_ROUND_ROBIN;
+    }
+    if (mode == "master") {
+        return GroupCommitPlanMode::MASTER;
+    }
+    return std::nullopt;
+}
+
+static void publish_group_commit_plan_mode(std::string_view value) {
+    if (auto mode = parse_group_commit_plan_mode(value)) {
+        published_group_commit_plan_mode.store(*mode, std::memory_order_relaxed);
+    }
+}
+
+DEFINE_Validator(group_commit_stream_load_plan_mode, [](const std::string& value) {
+    return parse_group_commit_plan_mode(value).has_value();
+});
+DEFINE_ON_UPDATE(group_commit_stream_load_plan_mode,
+                 [](const std::string&, const std::string& value) {
+                     publish_group_commit_plan_mode(value);
+                 });
+
+GroupCommitPlanMode get_group_commit_stream_load_plan_mode() {
+    return published_group_commit_plan_mode.load(std::memory_order_relaxed);
+}
+
 // init conf fields
 bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_to_default) {
     Properties props;
@@ -2545,6 +2582,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
+    publish_group_commit_plan_mode(group_commit_stream_load_plan_mode);
     published_inverted_index_candidate_pushdown_ratio.store(
             inverted_index_candidate_pushdown_ratio);
     atomic_lookup_connection_cache_block_pool_size.store(
