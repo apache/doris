@@ -37,8 +37,9 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.nio.channels.FileChannel;
+import java.nio.file.StandardOpenOption;
 import java.util.Map;
 
 public class MetaHelper {
@@ -93,8 +94,16 @@ public class MetaHelper {
         if (!file.renameTo(newFile)) {
             throw new IOException("Complete file " + filename + " failed");
         }
+        syncDirectory(dir);
 
         return newFile; // Return the newly renamed file
+    }
+
+    // Flush a directory's entries to disk, so that a file created or renamed in it survives a power loss.
+    public static void syncDirectory(File dir) throws IOException {
+        try (FileChannel channel = FileChannel.open(dir.toPath(), StandardOpenOption.READ)) {
+            channel.force(true);
+        }
     }
 
     public static File getFile(String filename, File dir) throws IOException {
@@ -163,7 +172,7 @@ public class MetaHelper {
             throws IOException {
         HttpURLConnection conn = null;
         checkFile(file);
-        OutputStream out = new FileOutputStream(file);
+        FileOutputStream out = new FileOutputStream(file);
         try {
             conn = HttpURLUtil.getConnectionWithNodeIdent(urlStr);
             conn.setConnectTimeout(timeout);
@@ -179,18 +188,27 @@ public class MetaHelper {
                 throw new IOException(getResponse(conn));
             }
             String remoteMd5 = conn.getHeaderField(X_IMAGE_MD5);
-            BufferedInputStream bin = new BufferedInputStream(conn.getInputStream());
-
-            // Do not limit speed in client side.
-            long bytes = IOUtils.copyBytes(bin, out, BUFFER_BYTES, CHECKPOINT_LIMIT_BYTES, true);
+            long bytes;
+            try (BufferedInputStream bin = new BufferedInputStream(conn.getInputStream())) {
+                // Do not limit speed in client side.
+                // Keep the output open so that its contents can be synced below.
+                bytes = IOUtils.copyBytes(bin, out, BUFFER_BYTES, CHECKPOINT_LIMIT_BYTES, false);
+            }
 
             if ((imageSize > 0) && (bytes != imageSize)) {
                 throw new IOException("Unexpected image size, expected: " + imageSize + ", actual: " + bytes);
             }
 
+            // The caller renames the file to its final name next. Sync the contents first,
+            // otherwise a power loss can leave a truncated file under the final name.
+            out.getChannel().force(true);
+
             // if remoteMd5 not null ,we need check md5
             if (remoteMd5 != null) {
-                String localMd5 = DigestUtils.md5Hex(new FileInputStream(file));
+                String localMd5;
+                try (FileInputStream in = new FileInputStream(file)) {
+                    localMd5 = DigestUtils.md5Hex(in);
+                }
                 if (!remoteMd5.equals(localMd5)) {
                     throw new IOException("Unexpected image md5, expected: " + remoteMd5 + ", actual: " + localMd5);
                 }

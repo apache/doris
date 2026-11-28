@@ -2819,6 +2819,7 @@ public class Env {
             curFile.delete();
             throw new IOException();
         }
+        MetaHelper.syncDirectory(new File(this.imageDir));
         return curFile.getAbsolutePath();
     }
 
