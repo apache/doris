@@ -51,6 +51,8 @@ import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
+import org.apache.doris.thrift.TLanceIndexMutationRequest;
+import org.apache.doris.thrift.TLanceIndexMutationResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishTopicRequest;
@@ -358,6 +360,16 @@ public class MockedBackendFactory {
                         + request.getSignature());
             }
             return new TAgentResult(new TStatus(TStatusCode.OK));
+        }
+
+        @Override
+        public TLanceIndexMutationResult lanceIndexMutate(TLanceIndexMutationRequest request) throws TException {
+            // The mocked backend has no lance index worker; answer with the same clean
+            // NOT_IMPLEMENTED rejection the real backend stub returns, so a dispatched
+            // mutation classifies as a confirmed failure instead of hanging or throwing.
+            TStatus status = new TStatus(TStatusCode.NOT_IMPLEMENTED_ERROR);
+            status.setErrorMsgs(Lists.newArrayList("lance index worker is not available in this build"));
+            return new TLanceIndexMutationResult().setStatus(status);
         }
 
         @Override

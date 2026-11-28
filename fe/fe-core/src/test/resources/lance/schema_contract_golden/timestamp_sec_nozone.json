@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "edge_timestamp.lance",
+  "version": 1,
+  "column": "ts_s",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 0,
+        "nn": "ts_s",
+        "nt": "timestamp\u003csec,tz\u003d\"-\"\u003e",
+        "nul": true
+      }
+    ]
+  }
+}

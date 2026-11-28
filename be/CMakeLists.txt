@@ -580,6 +580,7 @@ set(DORIS_LINK_LIBS
     Exprs
     Format
     IO
+    Lance
     Storage
     Runtime
     Service
@@ -922,6 +923,7 @@ add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/format)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/io)
+add_subdirectory(${SRC_DIR}/lance/index)
 add_subdirectory(${SRC_DIR}/storage/index/ann)
 add_subdirectory(${SRC_DIR}/storage)
 add_subdirectory(${SRC_DIR}/runtime)
