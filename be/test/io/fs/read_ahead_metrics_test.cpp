@@ -22,12 +22,15 @@
 #include <memory>
 #include <thread>
 
+#include "util/countdown_latch.h"
+
 namespace doris::io {
 
 TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     ReadAheadStatistics first;
     ReadAheadStatistics second;
     RuntimeProfile profile("SegmentIterator");
+    ReadAheadProfileReporter reporter(profile, first);
 
     COUNTER_UPDATE(&first.input_pages, 2);
     COUNTER_UPDATE(&first.input_bytes, 48);
@@ -49,14 +52,14 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     COUNTER_UPDATE(&first.fallback_time, 200);
     COUNTER_UPDATE(&first.complete_block_submit_time, 300);
     COUNTER_UPDATE(&first.partial_block_submit_time, 700);
-    first.update_profile(&profile);
-    first.update_profile(&profile);
+    reporter.update(first);
+    reporter.update(first);
     COUNTER_UPDATE(&first.input_bytes, 12);
     COUNTER_UPDATE(&second.input_bytes, 20);
     COUNTER_UPDATE(&second.column_plan_time, 300);
     COUNTER_UPDATE(&second.partial_block_submit_time, 200);
-    first.update_profile(&profile);
-    second.update_profile(&profile);
+    reporter.update(first);
+    reporter.update(second);
 
     EXPECT_EQ(profile.get_counter("PageReadAhead")->type(), TUnit::NONE);
     EXPECT_EQ(profile.get_counter("ReadAheadInputPages")->value(), 2);
@@ -96,6 +99,12 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     TRuntimeProfileTree tree;
     profile.to_thrift(&tree);
     const auto& children = tree.nodes.at(0).child_counters_map;
+    EXPECT_EQ(children.at(RuntimeProfile::ROOT_COUNTER).count("PageReadAhead"), 1);
+    for (const char* group :
+         {"ReadAheadPlanning", "ReadAheadIO", "ReadAheadConsume", "ReadAheadWriteback"}) {
+        EXPECT_EQ(profile.get_counter(group)->type(), TUnit::NONE);
+        EXPECT_EQ(children.at("PageReadAhead").count(group), 1);
+    }
     EXPECT_EQ(children.at("ReadAheadPlanning").count("ReadAheadColumnPlanTime"), 1);
     EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadColumnInitTime"), 1);
     EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadWindowDiscardTime"), 1);
@@ -109,19 +118,37 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
 TEST(ReadAheadMetricsTest, PreservesConcurrentUpdatesDuringReporting) {
     auto statistics = std::make_shared<ReadAheadStatistics>();
     RuntimeProfile profile("SegmentIterator");
+    ReadAheadProfileReporter reporter(profile, *statistics);
     constexpr int64_t updates = 50000;
-    std::thread worker([statistics]() {
+    CountDownLatch start(1);
+    std::thread worker([&]() {
+        start.wait();
         for (int64_t index = 0; index < updates; ++index) {
             COUNTER_UPDATE(&statistics->remote_bytes, 1);
         }
     });
+    start.count_down();
     for (int report = 0; report < 100; ++report) {
-        statistics->update_profile(&profile);
+        reporter.update(*statistics);
     }
     worker.join();
-    statistics->update_profile(&profile);
+    reporter.update(*statistics);
     EXPECT_EQ(profile.get_counter("ReadAheadRemoteBytes")->value(), updates);
     EXPECT_EQ(statistics->remote_bytes.value(), 0);
+}
+
+TEST(ReadAheadMetricsTest, ReporterDoesNotRetainSourceStatistics) {
+    RuntimeProfile profile("SegmentIterator");
+    std::unique_ptr<ReadAheadProfileReporter> reporter;
+    {
+        ReadAheadStatistics schema;
+        reporter = std::make_unique<ReadAheadProfileReporter>(profile, schema);
+    }
+    ReadAheadStatistics statistics;
+    COUNTER_UPDATE(&statistics.input_bytes, 17);
+    reporter->update(statistics);
+    EXPECT_EQ(profile.get_counter("ReadAheadInputBytes")->value(), 17);
+    EXPECT_EQ(statistics.input_bytes.value(), 0);
 }
 
 TEST(ReadAheadMetricsTest, CountersOutliveReportedProfile) {

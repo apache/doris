@@ -754,7 +754,7 @@ void OlapScanner::update_realtime_counters() {
     OlapScanLocalState* local_state = static_cast<OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();
     if (stats.read_ahead_stats != nullptr) {
-        stats.read_ahead_stats->update_profile(local_state->_segment_profile.get());
+        local_state->_report_read_ahead_profile(*stats.read_ahead_stats);
     }
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);
@@ -960,7 +960,7 @@ void OlapScanner::_collect_profile_before_close() {
                                   &stats.inverted_index_stats);
 
     if (stats.read_ahead_stats != nullptr) {
-        stats.read_ahead_stats->update_profile(local_state->_segment_profile.get());
+        local_state->_report_read_ahead_profile(*stats.read_ahead_stats);
     }
 
     // Keep the reader totals intact and exclude bytes already reported in realtime.

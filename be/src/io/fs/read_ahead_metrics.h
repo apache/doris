@@ -19,6 +19,8 @@
 
 #include <bvar/reducer.h>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 #include "runtime/runtime_profile.h"
@@ -98,6 +100,24 @@ struct ReadAheadStatistics {
     /// Transfer accumulated deltas into PageReadAhead counters on the reporting thread. Repeated
     /// calls add only new work, including when multiple scanners share the destination profile.
     void update_profile(RuntimeProfile* profile);
+};
+
+/// Binds profile-owned destinations once and drains reader-private statistics without name lookups.
+/// The profile must outlive this reporter. A statistics object has one reporting thread, but its
+/// asynchronous readers may keep incrementing counters concurrently. Different statistics objects
+/// may be reported concurrently through the same reporter.
+class ReadAheadProfileReporter {
+public:
+    ReadAheadProfileReporter(RuntimeProfile& profile, const ReadAheadStatistics& schema);
+    void update(ReadAheadStatistics& statistics) const;
+
+private:
+    static constexpr std::size_t kMetricCount = 54;
+    struct Binding {
+        RuntimeProfile::Counter* destination;
+        RuntimeProfile::Counter ReadAheadStatistics::*source;
+    };
+    std::array<Binding, kMetricCount> _bindings;
 };
 
 /// BE-wide gauges and cumulative totals, without query/file/cache-path labels. Gauge updates

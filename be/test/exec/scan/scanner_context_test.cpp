@@ -31,6 +31,9 @@
 #include <shared_mutex>
 #include <thread>
 #include <tuple>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -43,6 +46,7 @@
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner.h"
 #include "exec/scan/scanner_scheduler.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "runtime/task_execution_context.h"
@@ -139,6 +143,38 @@ public:
         auto task_exec_ctx = std::make_shared<TaskExecutionContext>();
         state->set_task_execution_context(task_exec_ctx);
         output_tuple_desc = descs->get_tuple_descriptor(0);
+    }
+
+    Status init_read_ahead_local_state(OlapScanLocalState& local_state) {
+        const std::vector<TScanRangeParams> scan_ranges;
+        const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                      std::vector<std::shared_ptr<Dependency>>>>
+                shared_state_map;
+        LocalStateInfo info {profile.get(), scan_ranges, nullptr, shared_state_map, 0};
+        return local_state.init(state.get(), info);
+    }
+
+    std::shared_ptr<Tablet> make_read_ahead_tablet(StorageEngine& engine) {
+        auto meta = std::make_shared<TabletMeta>(1, 2, 15673, 15674, 4, 5, TTabletSchema {}, 6,
+                                                 std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                 UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                 TCompressionType::LZ4F);
+        return std::make_shared<Tablet>(engine, std::move(meta), nullptr);
+    }
+
+    std::shared_ptr<OlapScanner> make_read_ahead_scanner(OlapScanLocalState& local_state,
+                                                         const std::shared_ptr<Tablet>& tablet) {
+        OlapScanner::Params params;
+        params.state = state.get();
+        params.profile = profile.get();
+        params.version = 0;
+        params.limit = -1;
+        params.aggregation = false;
+        auto scanner = OlapScanner::create_shared(&local_state, std::move(params));
+        scanner->_tablet_reader_params.tablet = tablet;
+        scanner->_tablet_reader = std::make_unique<TabletReader>();
+        scanner->_has_prepared = true;
+        return scanner;
     }
 
 private:
@@ -320,6 +356,114 @@ TEST_F(ScannerContextTest, inverted_index_profile_collection_is_additive_and_ide
     EXPECT_EQ(raw_frames->value(), 3);
     EXPECT_EQ(plaintext_bytes->value(), 30);
     EXPECT_EQ(decode_time->value(), 300);
+}
+
+TEST_F(ScannerContextTest, page_read_ahead_profile_reports_realtime_and_final_deltas) {
+    StorageEngine engine(EngineOptions {});
+    auto tablet = make_read_ahead_tablet(engine);
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs, 1,
+                                                             TQueryCacheParam {});
+    auto local_state = OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    ASSERT_TRUE(init_read_ahead_local_state(*local_state).ok());
+    auto first = make_read_ahead_scanner(*local_state, tablet);
+    auto second = make_read_ahead_scanner(*local_state, tablet);
+    auto* segment_profile = local_state->_segment_profile.get();
+    first->update_realtime_counters();
+    EXPECT_EQ(segment_profile->get_counter("PageReadAhead"), nullptr);
+    EXPECT_EQ(local_state->_read_ahead_profile_reporter, nullptr);
+
+    auto first_stats = std::make_shared<io::ReadAheadStatistics>();
+    auto second_stats = std::make_shared<io::ReadAheadStatistics>();
+    first->_tablet_reader->mutable_stats()->read_ahead_stats = first_stats;
+    second->_tablet_reader->mutable_stats()->read_ahead_stats = second_stats;
+    COUNTER_UPDATE(&first_stats->input_bytes, 10);
+    COUNTER_UPDATE(&second_stats->input_bytes, 20);
+    first->update_realtime_counters();
+    auto* bytes = segment_profile->get_counter("ReadAheadInputBytes");
+    ASSERT_NE(bytes, nullptr);
+    EXPECT_EQ(bytes->value(), 10);
+    auto* reporter = local_state->_read_ahead_profile_reporter.get();
+    second->update_realtime_counters();
+    EXPECT_EQ(bytes->value(), 30);
+    first->update_realtime_counters();
+    EXPECT_EQ(bytes->value(), 30);
+    EXPECT_EQ(local_state->_read_ahead_profile_reporter.get(), reporter);
+
+    COUNTER_UPDATE(&first_stats->input_bytes, 7);
+    first->set_opened();
+    first->mark_to_need_to_close();
+    EXPECT_EQ(bytes->value(), 37);
+    first->mark_to_need_to_close();
+    EXPECT_EQ(bytes->value(), 37);
+    EXPECT_EQ(first_stats->input_bytes.value(), 0);
+    EXPECT_EQ(second_stats->input_bytes.value(), 0);
+
+    auto final_state = OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    ASSERT_TRUE(init_read_ahead_local_state(*final_state).ok());
+    auto unopened = make_read_ahead_scanner(*final_state, tablet);
+    unopened->_tablet_reader->mutable_stats()->read_ahead_stats =
+            std::make_shared<io::ReadAheadStatistics>();
+    unopened->mark_to_need_to_close();
+    EXPECT_EQ(final_state->_segment_profile->get_counter("PageReadAhead"), nullptr);
+    EXPECT_EQ(final_state->_read_ahead_profile_reporter, nullptr);
+
+    auto final_only = make_read_ahead_scanner(*final_state, tablet);
+    auto final_stats = std::make_shared<io::ReadAheadStatistics>();
+    final_only->_tablet_reader->mutable_stats()->read_ahead_stats = final_stats;
+    COUNTER_UPDATE(&final_stats->input_bytes, 11);
+    final_only->set_opened();
+    final_only->mark_to_need_to_close();
+    auto* final_bytes = final_state->_segment_profile->get_counter("ReadAheadInputBytes");
+    ASSERT_NE(final_bytes, nullptr);
+    EXPECT_NE(final_bytes, bytes);
+    EXPECT_EQ(final_bytes->value(), 11);
+    EXPECT_EQ(final_stats->input_bytes.value(), 0);
+    EXPECT_EQ(bytes->value(), 37);
+}
+
+TEST_F(ScannerContextTest, page_read_ahead_profile_concurrent_first_use) {
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs, 1,
+                                                             TQueryCacheParam {});
+    auto local_state = OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    auto empty_state = OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    ASSERT_TRUE(init_read_ahead_local_state(*local_state).ok());
+    ASSERT_TRUE(init_read_ahead_local_state(*empty_state).ok());
+    io::ReadAheadStatistics first;
+    io::ReadAheadStatistics second;
+    COUNTER_UPDATE(&first.input_bytes, 3);
+    COUNTER_UPDATE(&second.input_bytes, 5);
+    CountDownLatch ready(2);
+    CountDownLatch start(1);
+    auto report = [&](io::ReadAheadStatistics& statistics) {
+        ready.count_down();
+        start.wait();
+        local_state->_report_read_ahead_profile(statistics);
+    };
+    std::thread first_worker([&] { report(first); });
+    std::thread second_worker([&] { report(second); });
+    ready.wait();
+    start.count_down();
+    first_worker.join();
+    second_worker.join();
+    auto* bytes = local_state->_segment_profile->get_counter("ReadAheadInputBytes");
+    ASSERT_NE(bytes, nullptr);
+    EXPECT_EQ(bytes->value(), 8);
+    EXPECT_EQ(first.input_bytes.value(), 0);
+    EXPECT_EQ(second.input_bytes.value(), 0);
+    COUNTER_UPDATE(&first.input_bytes, 7);
+    local_state->_report_read_ahead_profile(first);
+    EXPECT_EQ(bytes->value(), 15);
+    EXPECT_EQ(empty_state->_segment_profile->get_counter("PageReadAhead"), nullptr);
+    EXPECT_EQ(empty_state->_read_ahead_profile_reporter, nullptr);
+    empty_state->_report_read_ahead_profile(second);
+    EXPECT_EQ(empty_state->_segment_profile->get_counter("ReadAheadInputBytes")->value(), 0);
+    COUNTER_UPDATE(&second.input_bytes, 11);
+    empty_state->_report_read_ahead_profile(second);
+    auto* other_bytes = empty_state->_segment_profile->get_counter("ReadAheadInputBytes");
+    ASSERT_NE(other_bytes, nullptr);
+    EXPECT_NE(other_bytes, bytes);
+    EXPECT_EQ(other_bytes->value(), 11);
+    EXPECT_EQ(bytes->value(), 15);
 }
 
 TEST_F(ScannerContextTest, test_serial_run) {

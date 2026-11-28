@@ -45,6 +45,7 @@
 #include "exprs/virtual_slot_ref.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/block_file_cache_profile.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "runtime/query_cache/query_cache.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
@@ -57,6 +58,22 @@
 #include "util/to_string.h"
 
 namespace doris {
+
+OlapScanLocalState::OlapScanLocalState(RuntimeState* state, OperatorXBase* parent)
+        : Base(state, parent) {}
+
+OlapScanLocalState::~OlapScanLocalState() = default;
+
+void OlapScanLocalState::_report_read_ahead_profile(io::ReadAheadStatistics& statistics) {
+    // Scanners share the SegmentIterator profile. For example, two scanners reporting their
+    // first batches concurrently must bind one counter tree, not one tree per scanner.
+    std::call_once(_read_ahead_profile_once, [&] {
+        DORIS_CHECK(_segment_profile != nullptr);
+        _read_ahead_profile_reporter =
+                std::make_unique<io::ReadAheadProfileReporter>(*_segment_profile, statistics);
+    });
+    _read_ahead_profile_reporter->update(statistics);
+}
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
