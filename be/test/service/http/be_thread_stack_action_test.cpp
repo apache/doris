@@ -263,6 +263,15 @@ TEST_F(BeThreadStackActionTest, ThreadIdSelectorSupportsSingleAndMultipleIds) {
     EXPECT_THAT(body, testing::HasSubstr("summary: captured=2 skipped=0 timed_out=0 "
                                          "remote_signal_attempts=2\n"));
     EXPECT_EQ(2, count_thread_headers(body));
+    for (pid_t tid : {first.tid(), second.tid()}) {
+        const std::string result = thread_result_line(body, tid);
+        EXPECT_THAT(result, testing::HasSubstr("status=ok "));
+        EXPECT_THAT(result, testing::HasSubstr("capture_method=signal_context_libunwind"));
+        EXPECT_THAT(result, testing::ContainsRegex(" frames=[1-9][0-9]* "));
+        EXPECT_THAT(result, testing::HasSubstr("phdr_cache=true"));
+    }
+    EXPECT_THAT(body, testing::Not(testing::HasSubstr("unwind_status=unsupported")));
+    EXPECT_THAT(body, testing::Not(testing::HasSubstr("<no stack captured>")));
 
     first.stop();
     second.stop();
@@ -346,7 +355,8 @@ TEST_F(BeThreadStackActionTest, BlockingReadSyscallCanBeSkippedExplicitly) {
     EXPECT_THAT(body, testing::HasSubstr("skip_blocking_syscalls: true\n"));
     EXPECT_THAT(thread_result_line(body, reader.tid()),
                 testing::HasSubstr("status=skipped_blocking_syscall syscall=read "
-                                   "syscall_number=0"));
+                                   "syscall_number=" +
+                                   std::to_string(SYS_read)));
     EXPECT_THAT(body, testing::HasSubstr("<no stack captured>"));
     EXPECT_THAT(body, testing::HasSubstr("summary: captured=0 skipped=1 timed_out=0 "
                                          "remote_signal_attempts=0\n"));
