@@ -73,7 +73,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
 
         createPk("credential_values", "v INT", "")
         sql "INSERT INTO credential_values VALUES (1,11)"
-        check("select id,v from credential_values", [[1,11]], true)
+        check("select id,v from credential_values", [[1,11]], false)
         // The explicit JNI escape hatch takes precedence over the Rust-reader enable flag.
         sql "set force_jni_scanner=true"
         check("select id,v from credential_values", [[1,11]], false, true)
@@ -105,7 +105,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
             branch => 'audit', tag => 'audit_tag')"""
         // Master resolves a branch as its own table and binds its latest snapshot. The Rust
         // reader consumes that resolved table and split rather than re-evaluating the selector.
-        check("select id,v from branch_values@branch(audit)", [[1,11]], true)
+        check("select id,v from branch_values@branch(audit)", [[1,11]], false)
 
         sql """CREATE TABLE footer_aggregates (v INT NULL) ENGINE=paimon
             PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
@@ -131,18 +131,15 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                     }
                     assertEquals(entry[1].toString(), sql(entry[0]).toString())
                     def queryId = sql("select last_query_id()")[0][0].toString()
-                    boolean rustExpected = rust && !pushdown
                     def profile = profiles.getProfile(queryId,
-                            ["FileScannerV2", rustExpected ? "PaimonRustReader" : "ParquetReader",
-                             "Profile Completion State: COMPLETE"])
-                    assertEquals(rustExpected, profile.contains("PaimonRustReader"))
-                    if (!rustExpected) {
-                        def rows = rawRows(profile)
-                        if (pushdown) {
-                            assertTrue(rows.every { it == 0 }, "footer aggregate must not read data rows")
-                        } else {
-                            assertTrue(rows.any { it > 0 }, "full-scan control must read data rows")
-                        }
+                            ["FileScannerV2", "ParquetReader", "Profile Completion State: COMPLETE"])
+                    assertFalse(profile.contains("PaimonRustReader"),
+                            "raw-convertible files retain Native with and without footer aggregates")
+                    def rows = rawRows(profile)
+                    if (pushdown) {
+                        assertTrue(rows.every { it == 0 }, "footer aggregate must not read data rows")
+                    } else {
+                        assertTrue(rows.any { it > 0 }, "full-scan control must read data rows")
                     }
                 }
             }
@@ -158,7 +155,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
             def name = "string_to_temporal_${index}"
             createPk(name, "v STRING", "")
             sql "INSERT INTO ${name} VALUES (1,'42'), (2,NULL)"
-            check("select id,v from ${name} order by id", [[1,"42"],[2,null]], true)
+            check("select id,v from ${name} order by id", [[1,"42"],[2,null]], false)
             // Keep two uncompacted files in the same bucket so schema-evolution reads
             // exercise the logical merge reader rather than the native raw-file shortcut.
             sql "INSERT INTO ${name} VALUES (1,'42')"
@@ -185,7 +182,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         // Bracket array literals accept constants only; nested expressions need the array constructor.
         sql """INSERT INTO nested_values VALUES (1, named_struct('a',11,'b',22),
             array(named_struct('a',33,'b',44)), map(1,named_struct('a',55,'b',66)))"""
-        check("select id from nested_values", [[1]], true)
+        check("select id from nested_values", [[1]], false)
         // Distinct siblings expose ordinal decoding of a pruned second child.
         check("select struct_element(v,'b') from nested_values", [[22]], false)
         check("select struct_element(arr[1],'b') from nested_values", [[44]], false)
@@ -193,7 +190,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
 
         createPk("narrow_values", "v BIGINT NULL", "")
         sql "INSERT INTO narrow_values VALUES (1,383), (2,-129), (3,NULL)"
-        check("select id,v from narrow_values order by id", [[1,383],[2,-129],[3,null]], true)
+        check("select id,v from narrow_values order by id", [[1,383],[2,-129],[3,null]], false)
         sql "INSERT INTO narrow_values VALUES (1,383)"
         sql "ALTER TABLE narrow_values MODIFY COLUMN v TINYINT NULL"
         check("select id,v from narrow_values order by id", [[1,127],[2,127],[3,null]], false)
@@ -229,7 +226,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         check("select element_at(array_sort(v),1), element_at(array_sort(v),2) from collected_values",
                 [[11,22]], false)
 
-        // Safe single-file merge engines remain positive controls for the Rust route.
+        // Safe single-file merge engines remain Native with Rust enabled.
         ["deduplicate", "first-row"].eachWithIndex { engine, index ->
             def name = "single_file_merge_${index}"
             createPk(name, "v INT", ", 'merge-engine'='${engine}'")
@@ -239,7 +236,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                 spark_paimon """CALL paimon.sys.compact(
                     table => '${database}.${name}', compact_strategy => 'full')"""
             }
-            check("select id,v from ${name} order by id", [[1,11]], true)
+            check("select id,v from ${name} order by id", [[1,11]], false)
         }
 
         createPk("supported_sum", "v DOUBLE", ", 'merge-engine'='aggregation', "
@@ -284,7 +281,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
             }
             createPk(name, partial ? "v INT, seq INT" : "v INT", extra)
             sql "INSERT INTO ${name} VALUES (1,7${partial ? ',1' : ''})"
-            // An unused Java SPI default still fails Rust's global function-name validation.
+            // The primary-key merge budget gate retains JNI even when the SDK recognizes collect.
             check("select v from ${name}", [[7]], false)
         }
 
@@ -318,7 +315,6 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         check("select id from sparse_prefix order by id", [[4096]], false)
     } finally {
         saved.each { name, value -> sql "set ${name}='${value}'" }
-        sql "DROP DATABASE IF EXISTS ${database} FORCE"
         sql "DROP CATALOG IF EXISTS ${catalog}"
     }
 }

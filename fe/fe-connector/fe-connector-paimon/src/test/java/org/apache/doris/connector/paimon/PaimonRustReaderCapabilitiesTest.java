@@ -36,11 +36,42 @@ public class PaimonRustReaderCapabilitiesTest {
     public void integerSumAndProductMustPreserveJavaOverflowSemantics() {
         for (DataType type : Arrays.asList(DataTypes.TINYINT(), DataTypes.SMALLINT(),
                 DataTypes.INT(), DataTypes.BIGINT())) {
-            assertAggregate("sum", type, false);
-            assertAggregate("product", type, false);
+            assertAggregate("sum", type, true);
+            assertAggregate("product", type, true);
         }
         assertAggregate("sum", DataTypes.DOUBLE(), true);
         assertAggregate("product", DataTypes.FLOAT(), true);
+    }
+
+    @Test
+    public void integerOverflowOptionsHaveJavaCompatibleErrorSemantics() {
+        for (String function : Arrays.asList("sum", "product")) {
+            for (DataType type : Arrays.asList(DataTypes.TINYINT(), DataTypes.SMALLINT(),
+                    DataTypes.INT(), DataTypes.BIGINT())) {
+                Map<String, String> options = options("aggregation");
+                options.put("fields.v.aggregate-function", function);
+                options.put("fields.v." + function + ".fail-on-overflow", "true");
+                Assertions.assertTrue(compatible(type, options), function + " " + type);
+            }
+        }
+    }
+
+    @Test
+    public void collectDistinctRetainsItsOwnCompatibilityGate() {
+        Map<String, String> options = options("aggregation");
+        options.put("fields.v.aggregate-function", "collect");
+        options.put("fields.v.distinct", "false");
+        Assertions.assertTrue(compatible(DataTypes.ARRAY(DataTypes.INT()), options));
+        options.put("fields.v.distinct", "true");
+        Assertions.assertFalse(compatible(DataTypes.ARRAY(DataTypes.INT()), options));
+    }
+
+    @Test
+    public void recognizedUnusedCollectDoesNotLookLikeAJavaSpiFunction() {
+        Map<String, String> options = options("aggregation");
+        options.put("fields.default-aggregate-function", "collect");
+        options.put("fields.v.aggregate-function", "max");
+        Assertions.assertTrue(compatible(DataTypes.INT(), options));
     }
 
     @Test
@@ -53,7 +84,8 @@ public class PaimonRustReaderCapabilitiesTest {
 
     @Test
     public void aggregateFunctionMustAcceptTheValueType() {
-        assertAggregate("collect", DataTypes.ARRAY(DataTypes.INT()), false);
+        assertAggregate("collect", DataTypes.ARRAY(DataTypes.INT()), true);
+        assertAggregate("collect", DataTypes.INT(), false);
         assertAggregate("max", DataTypes.ARRAY(DataTypes.INT()), false);
         assertAggregate("max", DataTypes.INT(), true);
         assertAggregate("bool_and", DataTypes.BOOLEAN(), true);
@@ -73,9 +105,9 @@ public class PaimonRustReaderCapabilitiesTest {
         for (String engine : Arrays.asList("aggregation", "partial-update")) {
             Map<String, String> options = options(engine);
             options.put("fields.default-aggregate-function", "sum");
-            Assertions.assertFalse(compatible(DataTypes.INT(), options));
+            Assertions.assertFalse(compatible(DataTypes.STRING(), options));
             options.put("fields.v.aggregate-function", "max");
-            Assertions.assertTrue(compatible(DataTypes.INT(), options));
+            Assertions.assertTrue(compatible(DataTypes.STRING(), options));
         }
     }
 
@@ -85,7 +117,7 @@ public class PaimonRustReaderCapabilitiesTest {
             for (String key : Arrays.asList("fields.default-aggregate-function", "fields.id.aggregate-function")) {
                 Map<String, String> options = options(engine);
                 options.put("fields.v.aggregate-function", "max");
-                options.put(key, "collect");
+                options.put(key, "java_custom_aggregate");
                 Assertions.assertFalse(compatible(DataTypes.INT(), options));
                 options.put(key, "sum");
                 Assertions.assertTrue(compatible(DataTypes.INT(), options));
@@ -96,14 +128,14 @@ public class PaimonRustReaderCapabilitiesTest {
     @Test
     public void partialUpdateSequenceFieldsDoNotInheritTheValueAggregate() {
         Map<String, String> options = options("partial-update");
-        options.put("fields.default-aggregate-function", "sum");
+        options.put("fields.default-aggregate-function", "bool_and");
         options.put("fields.v.aggregate-function", "max");
         options.put("fields.seq,seq2.sequence-group", "v");
         List<DataField> fields = Arrays.asList(new DataField(0, "id", DataTypes.INT().notNull()),
                 new DataField(1, "v", DataTypes.INT()), new DataField(2, "seq", DataTypes.INT()),
                 new DataField(3, "seq2", DataTypes.INT()));
         Assertions.assertTrue(PaimonRustReaderCapabilities.hasCompatibleAggregates(schema(fields, options)));
-        options.put("fields.seq.aggregate-function", "collect");
+        options.put("fields.seq.aggregate-function", "java_custom_aggregate");
         Assertions.assertFalse(PaimonRustReaderCapabilities.hasCompatibleAggregates(schema(fields, options)));
     }
 

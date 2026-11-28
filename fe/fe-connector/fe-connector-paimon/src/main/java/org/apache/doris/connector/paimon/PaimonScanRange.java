@@ -80,6 +80,10 @@ public class PaimonScanRange implements ConnectorScanRange {
         if (builder.paimonSplit != null) {
             props.put("paimon.split", builder.paimonSplit);
             props.put("paimon.reader_type", builder.readerType.name());
+            if (builder.readerType == TPaimonReaderType.PAIMON_JNI) {
+                // FE-only diagnostics: populateRangeParams does not forward this reason to BE.
+                props.put(PaimonReaderRouting.REJECTION_PROPERTY, builder.rustRejectionReason.name());
+            }
         }
         if (builder.paimonTable != null) {
             props.put("paimon.table", builder.paimonTable);
@@ -344,6 +348,7 @@ public class PaimonScanRange implements ConnectorScanRange {
         // JNI reader fields
         private String paimonSplit;
         private TPaimonReaderType readerType = TPaimonReaderType.PAIMON_JNI;
+        private PaimonRustReaderReason rustRejectionReason = PaimonRustReaderReason.UNSUPPORTED_SPLIT;
         private String paimonTable;
         private String databaseName;
         private String tableName;
@@ -400,6 +405,11 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         public Builder targetSplitSize(long targetSplitSize) {
             this.targetSplitSize = targetSplitSize;
+            return this;
+        }
+
+        Builder rustRejectionReason(PaimonRustReaderReason reason) {
+            this.rustRejectionReason = reason;
             return this;
         }
 

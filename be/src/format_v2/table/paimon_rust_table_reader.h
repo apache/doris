@@ -38,6 +38,8 @@ class RecordBatch;
 
 namespace doris::format::paimon {
 
+class PaimonRustMemoryBudget;
+
 // Reads one FE-planned Paimon DataSplit per split through the paimon-rust C
 // bindings (libpaimon_c), using the schema-json pipeline:
 //
@@ -102,6 +104,12 @@ public:
 #endif
 
 private:
+    Status _prepare_split_impl(const format::SplitReadOptions& options);
+    Status _get_block_impl(Block* block, bool* eos);
+    Status _read_next_batch();
+    Status _convert_pending_batch(Block* block);
+    void _release_pending_batch();
+
     // Opaque holder for the paimon-rust C handles (defined in the .cpp so that
     // paimon_rust/paimon.h does not leak into other translation units).
     struct PaimonHandles;
@@ -161,6 +169,8 @@ private:
     // OSS/S3 -> AWS_* key remap (v1 semantics).
     std::map<std::string, std::string> _build_options() const;
 
+    // Destruction order also protects exceptional teardown: pending, pipeline, then budget.
+    std::unique_ptr<PaimonRustMemoryBudget> _memory_budget;
     std::unique_ptr<PaimonHandles> _handles; // cached table + per-split pipeline
     std::shared_ptr<arrow::RecordBatch> _pending_record_batch;
     size_t _pending_record_batch_offset = 0;

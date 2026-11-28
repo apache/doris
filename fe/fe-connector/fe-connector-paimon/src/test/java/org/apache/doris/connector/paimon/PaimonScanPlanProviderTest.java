@@ -110,6 +110,11 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -1799,8 +1804,14 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
-    public void explicitlyEnabledRustReaderPrecedesNativeAndForceJniStillWins(
+    public void nativeReaderPrecedesExplicitlyEnabledRustAndForceJniStillWins(
             @TempDir Path warehouse) throws Exception {
+        for (String format : Arrays.asList("parquet", "orc")) {
+            assertNativeReaderPriority(warehouse.resolve(format), format);
+        }
+    }
+
+    private static void assertNativeReaderPriority(Path warehouse, String format) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
             catalog.createDatabase("db", false);
@@ -1808,7 +1819,7 @@ public class PaimonScanPlanProviderTest {
             catalog.createTable(id, Schema.newBuilder()
                     .column("id", DataTypes.INT())
                     .option("bucket", "-1")
-                    .option("file.format", "parquet")
+                    .option("file.format", format)
                     .build(), false);
             Table table = catalog.getTable(id);
             commitRows(table, GenericRow.of(1));
@@ -1833,9 +1844,15 @@ public class PaimonScanPlanProviderTest {
             List<ConnectorScanRange> rustRanges = provider.planScan(
                     sessionWithProps(rustProperties), rustRequest);
             Assertions.assertFalse(rustRanges.isEmpty());
-            Assertions.assertTrue(rustRanges.stream().allMatch(range -> "PAIMON_RUST".equals(
-                            range.getProperties().get("paimon.reader_type"))),
-                    "explicitly enabled compatible Rust reads must precede native raw-file routing");
+            Map<String, String> routing = routingMetrics(provider, sessionWithProps(rustProperties));
+            Assertions.assertEquals(Integer.toString(rustRanges.size()), routing.get(PaimonReaderRouting.NATIVE));
+            Assertions.assertEquals("0", routing.get(PaimonReaderRouting.RUST));
+            Assertions.assertEquals("0", routing.get(PaimonReaderRouting.JNI));
+            Assertions.assertFalse(routing.keySet().stream().anyMatch(key -> key.startsWith("RustRejected.")));
+            Assertions.assertEquals(Integer.toString(rustRanges.size()), routing.get("RustNotConsidered.Native"));
+            Assertions.assertTrue(rustRanges.stream().allMatch(range ->
+                    !range.getProperties().containsKey("paimon.split")),
+                    "raw-convertible splits must remain native when Rust is explicitly enabled");
 
             ConnectorScanRequest aggregateRequest = ConnectorScanRequest.builder(handle, columns)
                     .backendCapabilities(Collections.singleton(PaimonRustReaderSelector.BACKEND_CAPABILITY))
@@ -1850,8 +1867,13 @@ public class PaimonScanPlanProviderTest {
 
             Map<String, String> ignoreJniProperties = new HashMap<>(rustProperties);
             ignoreJniProperties.put("ignore_split_type", "IGNORE_JNI");
-            Assertions.assertTrue(provider.planScan(sessionWithProps(ignoreJniProperties), rustRequest).isEmpty(),
-                    "IGNORE_JNI must drop logical Rust ranges");
+            Assertions.assertEquals(rustRanges.size(),
+                    provider.planScan(sessionWithProps(ignoreJniProperties), rustRequest).size(),
+                    "IGNORE_JNI must retain native ranges even when Rust is enabled");
+            Map<String, String> ignoreNativeProperties = new HashMap<>(rustProperties);
+            ignoreNativeProperties.put("ignore_split_type", "IGNORE_NATIVE");
+            Assertions.assertTrue(provider.planScan(sessionWithProps(ignoreNativeProperties), rustRequest).isEmpty(),
+                    "IGNORE_NATIVE must drop native ranges rather than reroute them to Rust");
 
             ConnectorScanRequest countRequest = ConnectorScanRequest.builder(handle, columns)
                     .backendCapabilities(Collections.singleton(PaimonRustReaderSelector.BACKEND_CAPABILITY))
@@ -1872,16 +1894,18 @@ public class PaimonScanPlanProviderTest {
                             .build());
             Assertions.assertFalse(pinnedRanges.isEmpty());
             Map<String, String> payload = pinnedRanges.get(0).getProperties();
-            Assertions.assertEquals("PAIMON_RUST", payload.get("paimon.reader_type"));
-            Assertions.assertEquals("db", payload.get("paimon.database_name"));
-            Assertions.assertEquals("rust_reader_priority", payload.get("paimon.table_name"));
-            TableSchema schema = JsonSerdeUtil.fromJson(payload.get("paimon.table_schema_json"), TableSchema.class);
+            Assertions.assertFalse(payload.containsKey("paimon.split"),
+                    "snapshot-pinned raw-convertible splits must also remain native");
+
+            // A Native range carries no Rust metadata. Check the logical-reader serialization
+            // contract independently so changing the routing does not remove that coverage.
+            PaimonScanPlanProvider.RustScanMetadata metadata = PaimonScanPlanProvider.RustScanMetadata.from(
+                    (FileStoreTable) table.copy(relationOptions));
+            TableSchema schema = JsonSerdeUtil.fromJson(metadata.schemaJson, TableSchema.class);
             Assertions.assertFalse(schema.options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key()));
-            int expectedParallelism = Math.min(17,
-                    PaimonReaderOptions.backendManifestParallelismCap(table).getAsInt());
-            Assertions.assertEquals(Integer.toString(expectedParallelism),
-                    schema.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
-            Assertions.assertFalse(payload.containsKey("paimon.branch_name"), "main is the default Rust branch");
+            Assertions.assertEquals("17", schema.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+            Assertions.assertEquals(((FileStoreTable) table).location().toString(), metadata.tableLocation);
+            Assertions.assertNull(metadata.branch, "main is the default Rust branch");
 
             Map<String, String> forceJniProperties = new HashMap<>(rustProperties);
             forceJniProperties.put("force_jni_scanner", "true");
@@ -1892,6 +1916,201 @@ public class PaimonScanPlanProviderTest {
                             range.getProperties().get("paimon.reader_type"))),
                     "force_jni_scanner must override an explicitly enabled Rust reader");
         }
+    }
+
+    @Test
+    public void nonRawDataEvolutionSplitStillUsesRustBeforeJni(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "column_merge");
+            FileStoreTable table = createColumnMergeTable(catalog, id);
+            List<Split> splits = table.newReadBuilder().newScan().plan().splits();
+            Assertions.assertEquals(1, splits.size());
+            DataSplit split = (DataSplit) splits.get(0);
+            Assertions.assertFalse(split.rawConvertible());
+            Assertions.assertEquals(2, split.dataFiles().size());
+            Assertions.assertTrue(split.dataFiles().stream().allMatch(file -> file.firstRowId() == 0L),
+                    "both column files must cover the same row IDs and require logical merging");
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "column_merge", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> columns = Arrays.asList(
+                    new PaimonColumnHandle("id", 0), new PaimonColumnHandle("v", 1));
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, columns)
+                    .backendCapabilities(Collections.singleton(PaimonRustReaderSelector.BACKEND_CAPABILITY))
+                    .build();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("enable_paimon_rust_reader", "true");
+            List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(properties), request);
+            Assertions.assertEquals(1, ranges.size());
+            Assertions.assertEquals("PAIMON_RUST", ranges.get(0).getProperties().get("paimon.reader_type"));
+            Assertions.assertEquals("1", routingMetrics(provider, sessionWithProps(properties))
+                    .get(PaimonReaderRouting.RUST));
+
+            properties.put("enable_paimon_rust_reader", "false");
+            ranges = provider.planScan(sessionWithProps(properties), request);
+            Assertions.assertEquals("PAIMON_JNI", ranges.get(0).getProperties().get("paimon.reader_type"));
+            Assertions.assertEquals("1", routingMetrics(provider, sessionWithProps(properties))
+                    .get("RustRejected.DISABLED"));
+            properties.put("enable_paimon_rust_reader", "true");
+            properties.put("force_jni_scanner", "true");
+            ranges = provider.planScan(sessionWithProps(properties), request);
+            Assertions.assertEquals("PAIMON_JNI", ranges.get(0).getProperties().get("paimon.reader_type"));
+            Assertions.assertEquals("1", routingMetrics(provider, sessionWithProps(properties))
+                    .get("RustRejected.FORCED_JNI"));
+            properties.put("force_jni_scanner", "false");
+            provider.planScan(sessionWithProps(properties), ConnectorScanRequest.builder(handle, columns).build());
+            Assertions.assertEquals("1", routingMetrics(provider, sessionWithProps(properties))
+                    .get("RustRejected.BACKEND_CAPABILITY"));
+            properties.put("ignore_split_type", "IGNORE_NATIVE");
+            Assertions.assertEquals(1, provider.planScan(sessionWithProps(properties), request).size());
+            Assertions.assertEquals("1", routingMetrics(provider, sessionWithProps(properties))
+                    .get(PaimonReaderRouting.RUST));
+            properties.put("ignore_split_type", "IGNORE_JNI");
+            Assertions.assertTrue(provider.planScan(sessionWithProps(properties), request).isEmpty());
+            Assertions.assertEquals("0", routingMetrics(provider, sessionWithProps(properties))
+                    .get(PaimonReaderRouting.RUST));
+        }
+    }
+
+    @Test
+    public void mixedRawAndColumnMergeSplitsReportActualDecisions(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "mixed");
+            FileStoreTable table = createColumnMergeTable(catalog, id);
+            commitRows(table, GenericRow.of(3, 33));
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle("db", "mixed",
+                    Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> columns = Arrays.asList(
+                    new PaimonColumnHandle("id", 0), new PaimonColumnHandle("v", 1));
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, columns)
+                    .backendCapabilities(Collections.singleton(PaimonRustReaderSelector.BACKEND_CAPABILITY))
+                    .build();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("enable_paimon_rust_reader", "true");
+            provider.planScan(sessionWithProps(properties), request);
+            Map<String, String> metrics = routingMetrics(provider, sessionWithProps(properties));
+            Assertions.assertEquals("1", metrics.get(PaimonReaderRouting.NATIVE));
+            Assertions.assertEquals("1", metrics.get(PaimonReaderRouting.RUST));
+            Assertions.assertEquals("0", metrics.get(PaimonReaderRouting.JNI));
+            properties.put("ignore_split_type", "IGNORE_NATIVE");
+            provider.planScan(sessionWithProps(properties), request);
+            metrics = routingMetrics(provider, sessionWithProps(properties));
+            Assertions.assertEquals("0", metrics.get(PaimonReaderRouting.NATIVE));
+            Assertions.assertEquals("1", metrics.get(PaimonReaderRouting.RUST));
+            properties.put("ignore_split_type", "IGNORE_JNI");
+            provider.planScan(sessionWithProps(properties), request);
+            metrics = routingMetrics(provider, sessionWithProps(properties));
+            Assertions.assertEquals("1", metrics.get(PaimonReaderRouting.NATIVE));
+            Assertions.assertEquals("0", metrics.get(PaimonReaderRouting.RUST));
+            properties.remove("ignore_split_type");
+            properties.put("force_jni_scanner", "true");
+            provider.planScan(sessionWithProps(properties), ConnectorScanRequest.builder(handle, columns)
+                    .countPushdown(true).build());
+            metrics = routingMetrics(provider, sessionWithProps(properties));
+            Assertions.assertEquals("1", metrics.get(PaimonReaderRouting.COUNT));
+            Assertions.assertFalse(metrics.containsKey("RustRejected.FORCED_JNI"));
+
+            ExecutorService workers = Executors.newFixedThreadPool(2);
+            try {
+                CountDownLatch planned = new CountDownLatch(2);
+                List<Future<Map<String, String>>> results = new ArrayList<>();
+                for (boolean forced : Arrays.asList(false, true)) {
+                    results.add(workers.submit(() -> {
+                        Map<String, String> flags = new HashMap<>();
+                        flags.put("enable_paimon_rust_reader", "true");
+                        flags.put("force_jni_scanner", Boolean.toString(forced));
+                        ConnectorSession session = sessionWithProps(flags);
+                        provider.planScan(session, request);
+                        planned.countDown();
+                        Assertions.assertTrue(planned.await(30, TimeUnit.SECONDS));
+                        return routingMetrics(provider, session);
+                    }));
+                }
+                Assertions.assertEquals("1", results.get(0).get(30, TimeUnit.SECONDS).get(PaimonReaderRouting.RUST));
+                Map<String, String> forced = results.get(1).get(30, TimeUnit.SECONDS);
+                Assertions.assertEquals("2", forced.get(PaimonReaderRouting.JNI));
+                Assertions.assertEquals("2", forced.get("RustRejected.FORCED_JNI"));
+            } finally {
+                workers.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void multiFileResourceGuardIsReportedThroughPlannerProfile(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "pk_merge");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT().notNull())
+                    .column("v", DataTypes.INT()).primaryKey("id").option("bucket", "1")
+                    .option("write-only", "true").build(), false);
+            Table table = catalog.getTable(id);
+            commitRows(table, GenericRow.of(1, 11));
+            commitRows(table, GenericRow.of(1, 22));
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            ConnectorSession session = sessionWithProps(Collections.singletonMap("enable_paimon_rust_reader", "true"));
+            List<ConnectorScanRange> ranges = provider.planScan(session,
+                    ConnectorScanRequest.builder(new PaimonTableHandle("db", "pk_merge",
+                            Collections.emptyList(), Collections.emptyList()), Collections.emptyList())
+                            .backendCapabilities(Collections.singleton(PaimonRustReaderSelector.BACKEND_CAPABILITY))
+                            .build());
+            Assertions.assertFalse(ranges.isEmpty());
+            Map<String, String> metrics = routingMetrics(provider, session);
+            Assertions.assertEquals("1", metrics.get("RustRejected.MULTI_FILE_RESOURCE_GUARD"));
+            Assertions.assertEquals("0", metrics.get(PaimonReaderRouting.RUST));
+        }
+    }
+
+    private static FileStoreTable createColumnMergeTable(Catalog catalog, Identifier id) throws Exception {
+        catalog.createTable(id, Schema.newBuilder()
+                .column("id", DataTypes.INT())
+                .column("v", DataTypes.INT())
+                .option("bucket", "-1")
+                .option("file.format", "parquet")
+                .option("row-tracking.enabled", "true")
+                .option("data-evolution.enabled", "true")
+                .option("write-only", "true")
+                .option("source.split.target-size", "1 b")
+                .build(), false);
+        FileStoreTable table = (FileStoreTable) catalog.getTable(id);
+        commitRows(table, GenericRow.of(1, 11), GenericRow.of(2, 22));
+        BatchWriteBuilder builder = table.newBatchWriteBuilder();
+        try (BatchTableWrite write = builder.newWrite()
+                .withWriteType(table.rowType().project(Collections.singletonList("v")))) {
+            write.write(GenericRow.of(7));
+            write.write(GenericRow.of(8));
+            List<CommitMessage> messages = write.prepareCommit();
+            for (CommitMessage message : messages) {
+                ((CommitMessageImpl) message).newFilesIncrement().newFiles()
+                        .replaceAll(file -> file.assignFirstRowId(0L));
+            }
+            try (BatchTableCommit commit = builder.newCommit()) {
+                commit.commit(messages);
+            }
+        }
+        return table;
+    }
+
+    private static Map<String, String> routingMetrics(PaimonScanPlanProvider provider, ConnectorSession session) {
+        return provider.collectScanProfiles(session).stream()
+                .filter(profile -> PaimonReaderRouting.GROUP.equals(profile.getGroupName()))
+                .findFirst().orElseThrow(AssertionError::new).getMetrics();
     }
 
     private static void commitRows(Table table, GenericRow... rows) throws Exception {

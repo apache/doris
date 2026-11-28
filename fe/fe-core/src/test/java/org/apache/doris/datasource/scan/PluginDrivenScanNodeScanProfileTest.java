@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -125,6 +126,7 @@ public class PluginDrivenScanNodeScanProfileTest {
     @Test
     public void pruneToZeroPublishesProfilesCollectedBeforeScanPlanning() {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(node, "connectorScanProfiles", new ArrayList<ConnectorScanProfile>());
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
         Mockito.when(provider.collectScanProfiles(session)).thenReturn(Collections.singletonList(
@@ -152,6 +154,22 @@ public class PluginDrivenScanNodeScanProfileTest {
         } finally {
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void scanDiagnosticsAreRetainedForExplainWithoutQueryProfile() {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        List<ConnectorScanProfile> retained = new ArrayList<>();
+        Deencapsulation.setField(node, "connectorScanProfiles", retained);
+        ConnectContext.remove();
+        ConnectorScanProfile routing = profile("Paimon Reader Routing", "Table Scan (db.t)",
+                "Ranges.Native", "1", "Ranges.Rust", "1");
+
+        Deencapsulation.invoke(node, "appendConnectorScanProfiles", Collections.singletonList(routing));
+        Deencapsulation.invoke(node, "appendConnectorScanProfiles", List.class);
+        Deencapsulation.invoke(node, "appendConnectorScanProfiles", Collections.emptyList());
+
+        Assertions.assertEquals(Collections.singletonList(routing), retained);
     }
 
     @Test

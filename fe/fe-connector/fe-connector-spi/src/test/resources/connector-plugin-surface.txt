@@ -232,6 +232,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanContext#splitsGenerated(long):v
 org.apache.doris.connector.spi.scan.ConnectorScanContext#whenCancelled(java.lang.Runnable):java.util.concurrent.CompletionStage
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#adjustFileCompressType(org.apache.doris.thrift.TFileCompressType):org.apache.doris.thrift.TFileCompressType
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#appendExplainInfo(java.lang.StringBuilder,java.lang.String,java.util.Map):void
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#appendExplainInfo(java.lang.StringBuilder,java.lang.String,java.util.Map,java.util.List):void
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#applyColumnDefaultsOnRead():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#canServeMetadataOnlyCount(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Optional):boolean
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#classifyColumn(java.lang.String):org.apache.doris.connector.spi.scan.ConnectorColumnCategory

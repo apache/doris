@@ -63,7 +63,7 @@ final class PaimonRustReaderSelector {
     private final FileStoreTable table;
     private final PaimonRustReaderCapabilities capabilities;
     private final Map<String, String> backendStorageProperties;
-    private final boolean scanCompatible;
+    private final PaimonRustReaderReason scanReason;
     private final boolean partialUpdateOrAggregateWithDeletionVectors;
     private final boolean deletionVectorsMergeOnRead;
 
@@ -97,33 +97,60 @@ final class PaimonRustReaderSelector {
                 .options().get(CoreOptions.SCAN_MODE.key());
         boolean scanModeSupported = scanMode == null || "default".equalsIgnoreCase(scanMode);
 
-        scanCompatible = enabled && !forceJniScanner
-                && backendsSupportRust
-                && !usesFallbackRead && !incrementalRead && !projectedVariant
-                && !options.queryAuthEnabled() && !restTokenTable
-                && !(partialUpdateOrAggregateWithDeletionVectors && deletionVectorsMergeOnRead)
-                && !deduplicateIgnoreDelete
-                && !unsupportedMergeOption && scanModeSupported
-                && isRustVerifiedLocationScheme(location)
-                && (!isHdfsLocationScheme(location)
-                        || isRustVerifiedHdfsBackend(backendStorageProperties))
-                && isCredentialProviderTranslatable(location, backendStorageProperties);
+        if (forceJniScanner) {
+            scanReason = PaimonRustReaderReason.FORCED_JNI;
+        } else if (!enabled) {
+            scanReason = PaimonRustReaderReason.DISABLED;
+        } else if (!backendsSupportRust) {
+            scanReason = PaimonRustReaderReason.BACKEND_CAPABILITY;
+        } else if (usesFallbackRead) {
+            scanReason = PaimonRustReaderReason.FALLBACK_READ;
+        } else if (incrementalRead) {
+            scanReason = PaimonRustReaderReason.INCREMENTAL_READ;
+        } else if (projectedVariant) {
+            scanReason = PaimonRustReaderReason.VARIANT_PROJECTION;
+        } else if (options.queryAuthEnabled()) {
+            scanReason = PaimonRustReaderReason.QUERY_AUTH;
+        } else if (restTokenTable) {
+            scanReason = PaimonRustReaderReason.REST_TOKEN;
+        } else if (partialUpdateOrAggregateWithDeletionVectors && deletionVectorsMergeOnRead) {
+            scanReason = PaimonRustReaderReason.DELETION_VECTOR_MODE;
+        } else if (deduplicateIgnoreDelete || unsupportedMergeOption) {
+            scanReason = PaimonRustReaderReason.MERGE_SEMANTICS;
+        } else if (!scanModeSupported) {
+            scanReason = PaimonRustReaderReason.SCAN_MODE;
+        } else if (!isRustVerifiedLocationScheme(location)) {
+            scanReason = PaimonRustReaderReason.STORAGE_SCHEME;
+        } else if (isHdfsLocationScheme(location) && !isRustVerifiedHdfsBackend(backendStorageProperties)) {
+            scanReason = PaimonRustReaderReason.HDFS_CONFIGURATION;
+        } else if (!isCredentialProviderTranslatable(location, backendStorageProperties)) {
+            scanReason = PaimonRustReaderReason.STORAGE_CREDENTIALS;
+        } else {
+            scanReason = PaimonRustReaderReason.SUPPORTED;
+        }
         capabilities = new PaimonRustReaderCapabilities(table, columns);
     }
 
     boolean canRead(DataSplit split) {
-        if (!scanCompatible || splitHasExternalFiles(split)) {
-            return false;
+        return rejectionReason(split) == PaimonRustReaderReason.SUPPORTED;
+    }
+
+    PaimonRustReaderReason rejectionReason(DataSplit split) {
+        if (scanReason != PaimonRustReaderReason.SUPPORTED) {
+            return scanReason;
+        }
+        if (splitHasExternalFiles(split)) {
+            return PaimonRustReaderReason.EXTERNAL_FILE;
         }
         if (splitHasOrcFile(split) && table.schema().fields().stream()
                 .anyMatch(field -> containsTimestampLtz(field.type()))) {
-            return false;
+            return PaimonRustReaderReason.ORC_TIMESTAMP_LTZ;
         }
         if (partialUpdateOrAggregateWithDeletionVectors && !deletionVectorsMergeOnRead
                 && !isFullyMaterializedPkDvSplit(split)) {
-            return false;
+            return PaimonRustReaderReason.DELETION_VECTOR_MODE;
         }
-        return capabilities.canRead(split);
+        return capabilities.rejectionReason(split);
     }
 
     static boolean isRustVerifiedLocationScheme(String location) {

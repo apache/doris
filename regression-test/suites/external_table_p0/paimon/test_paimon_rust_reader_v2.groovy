@@ -15,9 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Paimon rust reader under FileScannerV2: enable_paimon_rust_reader=true must work with
-// the default enable_file_scanner_v2=true (before the v2 port, a rust split was rejected by
-// FileScannerV2::is_supported and the reader was only reachable with v2 disabled).
+// Paimon reader routing under FileScannerV2: enabling Rust must preserve Native raw-file
+// scans and the JNI result baseline, including the deprecated scanner option.
 import org.apache.doris.regression.action.ProfileAction
 
 suite("test_paimon_rust_reader_v2", "p0,external") {
@@ -29,7 +28,6 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
 
     String catalogName = "test_paimon_rust_reader_v2"
     String fixtureDatabase = "test_paimon_rust_reader_v2_db"
-    boolean fixtureCreated = false
     String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -48,7 +46,7 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         def profileTextOf = { String query ->
             sql(query)
             def queryId = sql("select last_query_id()")[0][0]
-            profileAction.getProfile(queryId.toString(), ["FileScannerV2"])
+            profileAction.getProfile(queryId.toString(), ["FileScannerV2", "Profile Completion State: COMPLETE"])
         }
 
         sql """drop catalog if exists ${catalogName}"""
@@ -61,9 +59,8 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         sql """switch ${catalogName}"""
         sql "DROP DATABASE IF EXISTS ${fixtureDatabase} FORCE"
         sql "CREATE DATABASE ${fixtureDatabase}"
-        fixtureCreated = true
         // Old preinstalled schemas omit the format version and deliberately fall back to JNI.
-        // Create a current schema so the positive profile assertion still proves Rust executes.
+        // Create a current schema to verify that enabling Rust preserves Native priority.
         sql """CREATE TABLE ${fixtureDatabase}.rust_scan (id INT, v INT) ENGINE=paimon
             PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
         sql "INSERT INTO ${fixtureDatabase}.rust_scan VALUES (1,11), (2,22), (3,NULL)"
@@ -73,7 +70,7 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
 
         def testQueries = [
                 "select id,v from ${fixtureDatabase}.rust_scan order by id",
-                // This current schema exercises actual Rust predicate pushdown under V2.
+                // The raw-convertible current schema must retain Native predicate pushdown under V2.
                 "select id,v from ${fixtureDatabase}.rust_scan where id >= 2 order by id",
                 """select c1 from complex_all order by c1""",
                 """select c1 from complex_all where c1 >= 2 order by c1""",
@@ -92,7 +89,7 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
                 """select count(*) from append_table""",
                 """select count(*) from merge_on_read_table""",
                 """select count(*) from deletion_vector_parquet""",
-                // count(*) with a filter must fall back to the real rust scan.
+                // A filtered count must scan data instead of using metadata row counts.
                 """select count(*) from all_table where c1 >= 2""",
                 // Full scans of the count-suite tables exercise merge-on-read and
                 // deletion-vector batches through the v2 leaf reader.
@@ -105,15 +102,32 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         sql """set force_jni_scanner=true"""
         sql """set enable_paimon_rust_reader=false"""
         def jniResults = testQueries.collect { query -> sql(query) }
-        assertFalse(profileTextOf(testQueries[0]).contains("PaimonRustReader"))
+        String forcedProfile = profileTextOf(testQueries[0])
+        assertFalse(forcedProfile.contains("PaimonRustReader"))
+        assertTrue(forcedProfile.contains("RustRejected.FORCED_JNI"))
 
-        // Rust is preferred over the native raw-file reader only when explicitly enabled.
+        // Enabling Rust must preserve Native raw-file scans.
         sql """set force_jni_scanner=false"""
         sql """set enable_paimon_rust_reader=true"""
         def rustResults = testQueries.collect { query -> sql(query) }
         // Equal rows are insufficient: an eligibility fallback can run JNI in both legs.
-        assertTrue(profileTextOf(testQueries[0]).contains("PaimonRustReader"),
-                "enabled leg must reach the FileScannerV2 Rust reader")
+        String nativeProfile = profileTextOf(testQueries[0])
+        assertFalse(nativeProfile.contains("PaimonRustReader"),
+                "enabling Rust must retain Native for raw-convertible files")
+        assertTrue(nativeProfile.contains("ParquetReader"),
+                "the enabled leg must reach the Native Parquet reader")
+        assertTrue(nativeProfile.contains("RustNotConsidered.Native"))
+        assertFalse(nativeProfile.contains("RustRejected."))
+        explain {
+            sql(testQueries[0])
+            contains "paimonReadRanges: Native="
+            contains "RustNotConsidered.Native="
+        }
+        explain {
+            sql("select count(*) from ${fixtureDatabase}.rust_scan")
+            contains "MetadataCount=1"
+            contains "RustNotConsidered.MetadataCount=1"
+        }
 
         assertFalse(profileTextOf("select c1 from complex_all order by c1").contains("PaimonRustReader"),
                 "legacy schemas without a format version must use JNI")
@@ -122,23 +136,20 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
             assertEquals(jniResults[i].toString(), rustResults[i].toString())
         }
 
-        // The deprecated scanner option must not disable a selected Rust reader.
+        // The deprecated scanner option must preserve the same reader priority.
         sql """set enable_file_scanner_v2=false"""
         sql """set force_jni_scanner=false"""
         def compatibilityResults = testQueries.collect { query -> sql(query) }
         for (int i = 0; i < testQueries.size(); i++) {
             assertEquals(rustResults[i].toString(), compatibilityResults[i].toString())
         }
-        assertTrue(profileTextOf(testQueries[0]).contains("PaimonRustReader"),
-                "the deprecated scanner option must not disable Rust reads")
+        assertFalse(profileTextOf(testQueries[0]).contains("PaimonRustReader"),
+                "the deprecated scanner option must preserve Native priority")
     } finally {
         sql "set enable_profile=${originalEnableProfile}"
         sql """set enable_paimon_rust_reader=false"""
         sql """set force_jni_scanner=${originalForceJni}"""
         sql """set enable_file_scanner_v2=${originalV2}"""
-        if (fixtureCreated) {
-            sql "DROP DATABASE IF EXISTS ${catalogName}.${fixtureDatabase} FORCE"
-        }
         sql """drop catalog if exists ${catalogName}"""
     }
 }

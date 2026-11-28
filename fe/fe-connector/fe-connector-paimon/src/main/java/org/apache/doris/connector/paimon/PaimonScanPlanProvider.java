@@ -120,21 +120,19 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
  * Scan plan provider for Paimon tables.
  *
- * <p>Three split paths:
+ * <p>Split routing, in priority order:
  * <ol>
- *   <li><b>JNI reader</b> (default): Serializes the entire Paimon {@code Split} object.
- *       BE calls back into Paimon Java code via JNI.</li>
- *   <li><b>Native reader</b>: When {@code DataSplit.convertToRawFiles()} succeeds and
- *       all files are ORC/Parquet. BE reads files natively.</li>
- *   <li><b>COUNT pushdown</b>: When the query is COUNT(*) and the split has
- *       pre-computed merged row count.</li>
+ *   <li><b>COUNT pushdown</b>: Answer COUNT(*) from a precomputed merged row count.</li>
+ *   <li><b>Native reader</b>: Read raw ORC/Parquet files after all compatibility checks.</li>
+ *   <li><b>Rust reader</b>: Read supported logical splits when explicitly enabled and
+ *       supported by every backend.</li>
+ *   <li><b>JNI reader</b>: Read the remaining logical splits through Paimon Java.</li>
  * </ol>
  *
  * <p><b>Partition pruning (P5-T09): pure predicate pushdown.</b> Only the 4-arg
@@ -248,8 +246,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // FIX-SCAN-METRICS: per-query stash of the paimon SDK scan diagnostics harvested during planScan, keyed
     // by session queryId. fe-core drains it (collectScanProfiles) right after planScan on the same thread;
     // releaseReadTransaction reclaims any entry a thrown planScan left behind. Bounded to the sync planScan
-    // path (paimon never streams), so the CopyOnWriteArrayList value is only ever appended single-threaded.
-    private final ConcurrentHashMap<String, List<ConnectorScanProfile>> scanProfileStash = new ConcurrentHashMap<>();
+    // path (paimon never streams). Thread isolation also keeps concurrent scan nodes' EXPLAIN facts separate.
+    private final ConcurrentHashMap<String, Map<Long, List<ConnectorScanProfile>>> scanProfileStash =
+            new ConcurrentHashMap<>();
 
     public PaimonScanPlanProvider(PaimonCatalogProperties catalogProps, PaimonCatalogOps catalogOps) {
         this(catalogProps, catalogOps, null);
@@ -518,8 +517,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return;
         }
         String scanLabel = "Table Scan (" + handle.getDatabaseName() + "." + handle.getTableName() + ")";
-        PaimonScanMetrics.harvest(registry, table.name(), scanLabel).ifPresent(profile ->
-                scanProfileStash.computeIfAbsent(queryId, k -> new CopyOnWriteArrayList<>()).add(profile));
+        PaimonScanMetrics.harvest(registry, table.name(), scanLabel)
+                .ifPresent(profile -> stashProfile(session, profile));
+    }
+
+    private void stashProfile(ConnectorSession session, ConnectorScanProfile profile) {
+        if (session == null || session.getQueryId() == null || session.getQueryId().isEmpty()) {
+            return;
+        }
+        // The SPI collects immediately on the planning thread. Two scans of one query may plan
+        // concurrently: a query-wide drain would attach one scan's diagnostics to the other node.
+        scanProfileStash.compute(session.getQueryId(), (key, byThread) -> {
+            Map<Long, List<ConnectorScanProfile>> result = byThread == null ? new HashMap<>() : byThread;
+            result.computeIfAbsent(Thread.currentThread().getId(), ignored -> new ArrayList<>()).add(profile);
+            return result;
+        });
     }
 
     @Override
@@ -528,8 +540,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (queryId == null || queryId.isEmpty()) {
             return Collections.emptyList();
         }
-        List<ConnectorScanProfile> profiles = scanProfileStash.remove(queryId);
-        return profiles == null ? Collections.emptyList() : profiles;
+        List<ConnectorScanProfile> result = new ArrayList<>();
+        scanProfileStash.computeIfPresent(queryId, (key, byThread) -> {
+            List<ConnectorScanProfile> profiles = byThread.remove(Thread.currentThread().getId());
+            if (profiles != null) {
+                result.addAll(profiles);
+            }
+            return byThread.isEmpty() ? null : byThread;
+        });
+        return result;
     }
 
     @Override
@@ -550,11 +569,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        List<ConnectorScanRange> ranges = planScanWithReuse(session, request);
+        // Reused plans still represent distinct physical scan nodes. Harvest their immutable
+        // range decisions on every call, rather than counting only the first planning cache miss.
+        stashProfile(session, PaimonReaderRouting.profile((PaimonTableHandle) request.getTableHandle(), ranges));
+        return ranges;
+    }
+
+    private List<ConnectorScanRange> planScanWithReuse(ConnectorSession session, ConnectorScanRequest request) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) request.getTableHandle();
         if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown(),
-                    request.isAggregatePushdown(),
                     request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY),
                     request.getCoarseSplitSize());
         }
@@ -563,7 +589,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             // (authorized file enumeration); never reuse their planned ranges.
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown(),
-                    request.isAggregatePushdown(),
                     request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY),
                     request.getCoarseSplitSize());
         }
@@ -586,7 +611,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return scanReuse.computeIfAbsent(reuseKey,
                 key -> Collections.unmodifiableList(planScanInternal(session,
                         request.getTableHandle(), request.getColumns(), request.getFilter(),
-                        request.getLimit(), request.isCountPushdown(), request.isAggregatePushdown(),
+                        request.getLimit(), request.isCountPushdown(),
                         request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY),
                         request.getCoarseSplitSize(), table)));
     }
@@ -770,10 +795,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             long limit,
             boolean countPushdown,
-            boolean aggregatePushdown,
             boolean backendsSupportRust, long coarseSplitSize) {
         return planScanInternal(session, handle, columns, filter, limit, countPushdown,
-                aggregatePushdown, backendsSupportRust, coarseSplitSize,
+                backendsSupportRust, coarseSplitSize,
                 resolveScanTable((PaimonTableHandle) handle));
     }
 
@@ -784,7 +808,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             long limit,
             boolean countPushdown,
-            boolean aggregatePushdown,
             boolean backendsSupportRust,
             long coarseSplitSize, Table table) {
 
@@ -946,7 +969,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 validateMetadataColumnReader(true, false);
             }
             ranges.add(buildJniScanRange(split, defaultFileFormat,
-                    Collections.emptyMap(), false, weightDenominator));
+                    Collections.emptyMap(), false, weightDenominator, PaimonRustReaderReason.UNSUPPORTED_SPLIT));
         }
 
         // COUNT(*) pushdown (FIX-COUNT-PUSHDOWN): collapse every split whose merged (post-merge /
@@ -1014,9 +1037,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
             boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni() || needsNanosecondReader,
                     isForceJniScannerEnabled(session), hasVariantProjection, physicalVariantSchemaIds, optRawFiles);
-            boolean rustEligible = rustReaderSelector != null && rustReaderSelector.canRead(dataSplit);
             boolean legacyOrcTimestamp = false;
-            if (nativeEligible && containsTimestampType(rowType) && (!rustEligible || aggregatePushdown)) {
+            if (nativeEligible && containsTimestampType(rowType)) {
                 FileStoreTable splitTable = legacyOrcSplitTable((FileStoreTable) legacyOrcSchemaTable.get(), dataSplit);
                 Set<Integer> splitReadFieldIds = branchReadFieldIds(rowType, splitTable.rowType(), readFieldIds);
                 legacyOrcTimestamp = withSchemaHistoryAuthentication(() ->
@@ -1025,20 +1047,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         || requiresOrcTimestampReader(splitTable, optRawFiles, splitReadFieldIds,
                                 legacyOrcTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>())));
             }
-            // Only the native reader can answer COUNT(column) and MIN/MAX from file footers.
-            // Keep ordinary compatible scans on Rust, but preserve native aggregate pushdown.
-            if (rustEligible && !(aggregatePushdown && nativeEligible && !legacyOrcTimestamp)) {
-                // Rust consumes logical splits, so IGNORE_JNI applies just as on branch-4.1.
-                if (ignoreJni) {
-                    continue;
-                }
-                if (rustScanMetadata == null) {
-                    rustScanMetadata = RustScanMetadata.from((FileStoreTable) table);
-                }
-                ranges.add(buildRustScanRange(dataSplit, rustScanMetadata, paimonHandle,
-                        defaultFileFormat, partitionValues, weightDenominator));
-                continue;
-            }
+            // Keep raw-file scans and footer aggregates on Native. Rust is the logical reader
+            // fallback, after all native compatibility checks (including historical schemas).
             if (nativeEligible && !legacyOrcTimestamp) {
                 if (ignoreNative) {
                     if (requiresMetadataColumns) {
@@ -1079,21 +1089,29 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                             dataSplit.bucket()));
                 }
             } else {
-                // Logical fallback after Rust/native eligibility checks.
+                PaimonRustReaderReason rustReason = rustReaderSelector != null
+                        ? rustReaderSelector.rejectionReason(dataSplit)
+                        : requiresMetadataColumns ? PaimonRustReaderReason.METADATA_COLUMNS
+                                : PaimonRustReaderReason.UNSUPPORTED_TABLE;
+                // IGNORE_JNI suppresses both logical readers; it must never reroute a split.
                 if (ignoreJni) {
-                    // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
                 }
-                // Lossless timestamp fallbacks can expose metadata through the SDK's physical iterator.
-                // Raw convertibility alone does not select the SDK raw reader: historical primary-key
-                // files without delete counts require merging and lose physical file/row positions.
-                if (requiresMetadataColumns && (!(legacyOrcTimestamp || needsNanosecondReader)
-                        || !supportsJniPhysicalMetadata(
-                        legacyOrcSchemaTable.get(), dataSplit))) {
-                    validateMetadataColumnReader(true, false);
+                if (rustReason == PaimonRustReaderReason.SUPPORTED) {
+                    if (rustScanMetadata == null) {
+                        rustScanMetadata = RustScanMetadata.from((FileStoreTable) table);
+                    }
+                    ranges.add(buildRustScanRange(dataSplit, rustScanMetadata, paimonHandle,
+                            defaultFileFormat, partitionValues, weightDenominator));
+                } else {
+                    // Historical physical metadata needs the SDK's lossless physical iterator.
+                    if (requiresMetadataColumns && (!(legacyOrcTimestamp || needsNanosecondReader)
+                            || !supportsJniPhysicalMetadata(legacyOrcSchemaTable.get(), dataSplit))) {
+                        validateMetadataColumnReader(true, false);
+                    }
+                    ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
+                            partitionValues, true, weightDenominator, rustReason));
                 }
-                ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
-                        partitionValues, true, weightDenominator));
             }
         }
 
@@ -1907,7 +1925,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private PaimonScanRange buildJniScanRange(Split split, String defaultFileFormat,
-            Map<String, String> partitionValues, boolean isDataSplit, long weightDenominator) {
+            Map<String, String> partitionValues, boolean isDataSplit, long weightDenominator,
+            PaimonRustReaderReason rustReason) {
         long splitWeight = 0;
         if (isDataSplit) {
             splitWeight = computeSplitWeight((DataSplit) split);
@@ -1927,6 +1946,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         PaimonScanRange.Builder builder = new PaimonScanRange.Builder()
                 .fileFormat(fileFormat)
                 .paimonSplit(serializedSplit)
+                .rustRejectionReason(rustReason)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(splitWeight)
                 .targetSplitSize(weightDenominator);
@@ -2782,6 +2802,64 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         Integer.parseInt(nativeSplits), Integer.parseInt(totalSplits));
             }
         }
+    }
+
+    @Override
+    public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> nodeProperties,
+            List<ConnectorScanProfile> profiles) {
+        Map<String, Long> counts = PaimonReaderRouting.aggregate(profiles);
+        if (counts.isEmpty()) {
+            appendExplainInfo(output, prefix, nodeProperties);
+            return;
+        }
+        Map<String, String> baseProperties = new HashMap<>(nodeProperties);
+        baseProperties.remove(ScanNodePropertyKeys.SYNTHETIC_EXPLAIN_VERBOSE);
+        appendExplainInfo(output, prefix, baseProperties);
+        output.append(prefix).append("paimonReadRanges: ")
+                .append("Native=").append(counts.getOrDefault(PaimonReaderRouting.NATIVE, 0L))
+                .append(", Rust=").append(counts.getOrDefault(PaimonReaderRouting.RUST, 0L))
+                .append(", JNI=").append(counts.getOrDefault(PaimonReaderRouting.JNI, 0L))
+                .append(", MetadataCount=").append(counts.getOrDefault(PaimonReaderRouting.COUNT, 0L)).append("\n");
+        counts.forEach((key, value) -> {
+            if (key.startsWith("RustRejected.") || key.startsWith("RustNotConsidered.")) {
+                output.append(prefix).append(key).append("=").append(value).append("\n");
+            }
+        });
+        if (nodeProperties.containsKey(ScanNodePropertyKeys.SYNTHETIC_EXPLAIN_VERBOSE)) {
+            // Native subranges, Rust DataSplits, JNI ranges and collapsed metadata counts are
+            // distinct units. Never infer JNI from total minus Native when Rust is enabled.
+            output.append(prefix).append("PaimonSplitStats: \n");
+            long total = counts.getOrDefault(PaimonReaderRouting.NATIVE, 0L)
+                    + counts.getOrDefault(PaimonReaderRouting.RUST, 0L)
+                    + counts.getOrDefault(PaimonReaderRouting.JNI, 0L)
+                    + counts.getOrDefault(PaimonReaderRouting.COUNT, 0L);
+            for (long index = 0; index < Math.min(total, 3L); index++) {
+                appendTypedSplitStat(output, prefix, index, counts);
+            }
+            if (total > 4) {
+                output.append(prefix).append("  ... other ").append(total - 4)
+                        .append(" paimon split stats ...\n");
+            }
+            if (total >= 4) {
+                appendTypedSplitStat(output, prefix, total - 1, counts);
+            }
+        }
+    }
+
+    private static void appendTypedSplitStat(StringBuilder output, String prefix, long index,
+            Map<String, Long> counts) {
+        String[] keys = {PaimonReaderRouting.NATIVE, PaimonReaderRouting.RUST,
+                PaimonReaderRouting.JNI, PaimonReaderRouting.COUNT};
+        String[] labels = {"NATIVE", "RUST", "JNI", "METADATA_COUNT"};
+        for (int type = 0; type < keys.length; type++) {
+            long count = counts.getOrDefault(keys[type], 0L);
+            if (index < count) {
+                output.append(prefix).append("  SplitStat [type=").append(labels[type]).append("]\n");
+                return;
+            }
+            index -= count;
+        }
+        throw new IllegalStateException("Paimon routing range index exceeds its counts");
     }
 
     /**

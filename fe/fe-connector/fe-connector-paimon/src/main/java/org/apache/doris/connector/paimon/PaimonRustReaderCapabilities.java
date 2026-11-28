@@ -48,43 +48,67 @@ import java.util.concurrent.ConcurrentHashMap;
 final class PaimonRustReaderCapabilities {
     private static final Set<String> SUPPORTED_AGGREGATE_NAMES = ImmutableSet.of(
             "sum", "product", "min", "max", "last_value", "first_value", "last_non_null_value",
-            "first_non_null_value", "first_not_null_value", "bool_and", "bool_or", "listagg");
+            "first_non_null_value", "first_not_null_value", "bool_and", "bool_or", "listagg", "collect");
     private final FileStoreTable table;
     private final TableSchema schema;
-    private final boolean tableCompatible;
+    private final PaimonRustReaderReason tableReason;
     private final Map<Long, Boolean> compatibleFileSchemas = new ConcurrentHashMap<>();
 
     PaimonRustReaderCapabilities(FileStoreTable table, List<ConnectorColumnHandle> columns) {
         this.table = table;
         this.schema = table.schema();
-        this.tableCompatible = schema != null && hasCompatibleSchemaVersion(schema)
-                && hasRustCompatibleTimestamps(schema.fields())
-                && hasFullNestedProjection(columns) && hasCompatibleMergeEngine(schema)
-                && hasCompatibleAggregates(schema);
+        this.tableReason = tableReason(schema, columns);
+    }
+
+    private static PaimonRustReaderReason tableReason(TableSchema schema, List<ConnectorColumnHandle> columns) {
+        if (schema == null) {
+            return PaimonRustReaderReason.SCHEMA_METADATA;
+        }
+        if (!hasCompatibleSchemaVersion(schema)) {
+            return PaimonRustReaderReason.SCHEMA_VERSION;
+        }
+        if (!hasRustCompatibleTimestamps(schema.fields())) {
+            return PaimonRustReaderReason.TIMESTAMP_PRECISION;
+        }
+        if (!hasFullNestedProjection(columns)) {
+            return PaimonRustReaderReason.NESTED_PROJECTION;
+        }
+        if (!hasCompatibleMergeEngine(schema)) {
+            return PaimonRustReaderReason.MERGE_ENGINE_RESOURCE_GUARD;
+        }
+        return hasCompatibleAggregates(schema)
+                ? PaimonRustReaderReason.SUPPORTED : PaimonRustReaderReason.AGGREGATE_SEMANTICS;
     }
 
     boolean canRead(DataSplit split) {
-        if (!tableCompatible) {
-            return false;
+        return rejectionReason(split) == PaimonRustReaderReason.SUPPORTED;
+    }
+
+    PaimonRustReaderReason rejectionReason(DataSplit split) {
+        if (tableReason != PaimonRustReaderReason.SUPPORTED) {
+            return tableReason;
         }
-        // The pinned merge reader retains losing input batches until an output batch fills.
-        // Neither zero deletes nor a small read.batch-size bounds this across multiple files.
+        // SDK reservation still excludes retained sort-merge/same-key state. Local budgeting
+        // does not make a multi-file PK split safe, even with zero recorded deletes.
         if (!schema.primaryKeys().isEmpty() && split.dataFiles().size() > 1) {
-            return false;
+            return PaimonRustReaderReason.MULTI_FILE_RESOURCE_GUARD;
         }
         for (DataFileMeta file : split.dataFiles()) {
-            // Sort-merge retains consumed batches until it emits enough rows. Retracts can
-            // produce an unbounded zero-output prefix; aggregation also rejects retracts.
-            // Unknown counts must stay on JNI, including old files without this statistic.
-            if (!schema.primaryKeys().isEmpty() && file.deleteRowCount().orElse(-1L) != 0L) {
-                return false;
+            if (!schema.primaryKeys().isEmpty()) {
+                if (!file.deleteRowCount().isPresent()) {
+                    return PaimonRustReaderReason.DELETE_STATISTICS_UNAVAILABLE;
+                }
+                if (file.deleteRowCount().get() != 0L) {
+                    // A surviving output row plus a long retract tail can retain input batches.
+                    return PaimonRustReaderReason.DELETES_RESOURCE_GUARD;
+                }
             }
             if (file.schemaId() != schema.id() && !compatibleFileSchemas.computeIfAbsent(
                     file.schemaId(), this::hasCompatibleFileSchema)) {
-                return false;
+                return PaimonRustReaderReason.SCHEMA_EVOLUTION;
             }
         }
-        return true;
+        return PaimonRustReaderReason.SUPPORTED;
     }
 
     private static boolean hasFullNestedProjection(List<ConnectorColumnHandle> columns) {
@@ -258,8 +282,8 @@ final class PaimonRustReaderCapabilities {
                 }
             }
         }
-        // Validate values and types, not just option keys. Java's SPI includes functions
-        // such as collect which the pinned Rust aggregator factory does not implement.
+        // Validate the effective function and its type separately from the resource gate.
+        // This is the Doris-validated subset, not the pinned SDK's complete factory list.
         for (DataField field : schema.fields()) {
             if (schema.primaryKeys().contains(field.name()) || sequenceFields.contains(field.name())) {
                 continue;
@@ -270,7 +294,11 @@ final class PaimonRustReaderCapabilities {
             if (function == null) {
                 function = options.get("fields.default-aggregate-function");
             }
-            if (function != null && !supportsAggregate(function, field.type())) {
+            if (function != null && (!supportsAggregate(function, field.type())
+                    || ("collect".equals(function) && Boolean.parseBoolean(
+                            options.get("fields." + field.name() + ".distinct"))))) {
+                // Distinct collect uses different element ordering in the two SDKs. Keep
+                // that combination on JNI until its result contract is established.
                 return false;
             }
         }
@@ -281,12 +309,14 @@ final class PaimonRustReaderCapabilities {
         DataTypeRoot root = type.getTypeRoot();
         switch (function) {
             case "sum":
-                // Java wraps integer aggregates by default and retains compact-decimal intermediate
-                // sums beyond declared precision. Rust errors or resets the accumulator.
-                return root == DataTypeRoot.FLOAT || root == DataTypeRoot.DOUBLE
+                // The pinned SDK wraps integers by default and honors fail-on-overflow,
+                // like Java. Compact-decimal intermediate overflow still differs.
+                return integerWidth(root) != 0 || root == DataTypeRoot.FLOAT || root == DataTypeRoot.DOUBLE
                         || (type instanceof DecimalType && ((DecimalType) type).getPrecision() > 18);
             case "product":
-                return root == DataTypeRoot.FLOAT || root == DataTypeRoot.DOUBLE;
+                return integerWidth(root) != 0 || root == DataTypeRoot.FLOAT || root == DataTypeRoot.DOUBLE;
+            case "collect":
+                return type instanceof ArrayType;
             case "min":
             case "max":
                 return integerWidth(root) != 0 || root == DataTypeRoot.FLOAT || root == DataTypeRoot.DOUBLE
