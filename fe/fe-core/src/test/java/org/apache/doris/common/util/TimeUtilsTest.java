@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -179,6 +180,33 @@ public class TimeUtilsTest {
         } catch (DdlException ex) {
             Assertions.assertTrue(ex.getMessage().contains("Unknown or incorrect time zone: 'FOO'"));
         }
+    }
+
+    @Test
+    public void testSystemTimeZoneResolvesToTheSystemZone() throws DdlException {
+        // Use a zone that is unlikely to be the test machine's, so the test shows SYSTEM follows
+        // the FE's system zone rather than a fixed value.
+        mockedTimeUtils.when(TimeUtils::getSystemTimeZone)
+                .thenReturn(TimeZone.getTimeZone(ZoneId.of("America/Port-au-Prince")));
+
+        Assertions.assertEquals("America/Port-au-Prince", TimeUtils.checkSessionTimeZoneValidAndStandardize("SYSTEM"));
+        Assertions.assertEquals("America/Port-au-Prince", TimeUtils.checkSessionTimeZoneValidAndStandardize("system"));
+        // SET time_zone = 'SYSTEM' gives the same zone a new session starts with.
+        Assertions.assertEquals(new SessionVariable().getTimeZone(),
+                TimeUtils.checkSessionTimeZoneValidAndStandardize("SYSTEM"));
+        // Other values are checked as before.
+        Assertions.assertEquals("CST", TimeUtils.checkSessionTimeZoneValidAndStandardize("CST"));
+        Assertions.assertEquals("+08:00", TimeUtils.checkSessionTimeZoneValidAndStandardize("+08:00"));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown or incorrect time zone: 'FOO'",
+                () -> TimeUtils.checkSessionTimeZoneValidAndStandardize("FOO"));
+    }
+
+    @Test
+    public void testSystemIsNotATimeZoneArgument() {
+        // A BE rejects SYSTEM as the zone argument of CONVERT_TZ, so FE constant folding must reject it too.
+        // MUTATION: resolving SYSTEM in checkTimeZoneValidAndStandardize -> red.
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown or incorrect time zone: 'SYSTEM'",
+                () -> TimeUtils.checkTimeZoneValidAndStandardize("SYSTEM"));
     }
 
     @Test

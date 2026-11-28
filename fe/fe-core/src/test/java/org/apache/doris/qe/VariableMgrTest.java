@@ -30,6 +30,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.types.BigIntType;
@@ -182,6 +183,23 @@ public class VariableMgrTest extends TestWithFeService {
                 "set session_context='trace_id:123'", connectContext);
         stmt.run(connectContext, null);
         Assertions.assertEquals("123", connectContext.traceId());
+    }
+
+    @Test
+    public void testSetTimeZoneSystem() throws Exception {
+        // MySQL clients may send SET time_zone = 'SYSTEM' while they set up a session.
+        String systemZone = TimeUtils.getSystemTimeZone().getID();
+        for (String value : new String[] {"SYSTEM", "system"}) {
+            SetOptionsCommand stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                    "set time_zone = '+05:00'", connectContext);
+            stmt.run(connectContext, null);
+            Assertions.assertEquals("+05:00", connectContext.getSessionVariable().getTimeZone());
+
+            stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                    "set time_zone = '" + value + "'", connectContext);
+            stmt.run(connectContext, null);
+            Assertions.assertEquals(systemZone, connectContext.getSessionVariable().getTimeZone());
+        }
     }
 
     @Test
