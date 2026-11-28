@@ -353,6 +353,9 @@ DECLARE_mInt32(download_low_speed_time);
 DECLARE_mBool(enable_batch_download);
 // whether to enable stream load forward endpoint for cloud group commit
 DECLARE_mBool(enable_group_commit_streamload_be_forward);
+DECLARE_mString(group_commit_stream_load_plan_mode);
+enum class GroupCommitPlanMode { ROUND_ROBIN, NON_MASTER_ROUND_ROBIN, MASTER };
+GroupCommitPlanMode get_group_commit_stream_load_plan_mode();
 // whether to check md5sum when download
 DECLARE_mBool(enable_download_md5sum_check);
 // download binlog meta timeout

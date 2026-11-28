@@ -1376,8 +1376,6 @@ public class FrontendServiceImplTest extends TestWithFeService {
     public void testGroupCommitStreamLoadPutChecksAuthenticationAndLoadPrivilege() throws Exception {
         String noLoadUser = "group_commit_no_load_user";
         String noLoadPassword = "group_commit_test_password";
-        boolean originalForwardSetting = Config.enable_forward_group_commit_stream_load_to_follower;
-        Config.enable_forward_group_commit_stream_load_to_follower = false;
         executeCommand("DROP USER IF EXISTS " + noLoadUser);
         executeCommand("CREATE USER " + noLoadUser + " IDENTIFIED BY '" + noLoadPassword + "'");
 
@@ -1410,7 +1408,6 @@ public class FrontendServiceImplTest extends TestWithFeService {
         } finally {
             connectContext.setThreadLocalInfo();
             executeCommand("DROP USER IF EXISTS " + noLoadUser);
-            Config.enable_forward_group_commit_stream_load_to_follower = originalForwardSetting;
         }
     }
 

@@ -21,15 +21,19 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * MasterOpExecutor is used to send request to Master FE.
@@ -81,20 +85,49 @@ public class MasterOpExecutor extends FEOpExecutor {
 
     public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {
         result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster));
-        if (result.isSetStatusCode() && result.getStatusCode() != 0) {
-            throw new LoadException(getForwardResultErrorMessage(result));
-        }
-        if (result.isSetErrMessage()) {
-            throw new LoadException(result.getErrMessage());
-        }
+        checkGroupCommitResult(result, "failed to select backend for group commit");
         return result.groupCommitLoadBeId;
     }
 
-    private static String getForwardResultErrorMessage(TMasterOpResult result) {
-        if (result.isSetErrMessage() && result.getErrMessage() != null && !result.getErrMessage().isEmpty()) {
-            return result.getErrMessage();
+    public static void checkGroupCommitResult(TMasterOpResult result, String operation) throws LoadException {
+        if (result.getStatusCode() != TStatusCode.OK.getValue() || result.isSetErrMessage()) {
+            String message = result.getErrMessage();
+            throw new LoadException(message == null || message.isEmpty()
+                    ? operation + ", status code: " + result.getStatusCode() : message);
         }
-        return "failed to select backend for group commit, status code: " + result.getStatusCode();
+    }
+
+    public TMasterOpResult syncJournalAndGetGroupCommitTableStatus(String db, String table, int timeoutMs)
+            throws UserException {
+        if (timeoutMs <= 0) {
+            throw new LoadException("Timed out checking Group Commit planning metadata");
+        }
+        TMasterOpRequest params = buildSyncJournalParams().setDb(db)
+                .setGroupCommitInfo(new TGroupCommitInfo().setTableName(table).setCheckTableBlocked(true));
+        long start = System.nanoTime();
+        thriftTimeoutMs = timeoutMs;
+        TMasterOpResult response;
+        try {
+            response = forward(params);
+        } catch (Exception e) {
+            throw new LoadException(
+                    "Failed to check Group Commit metadata for " + db + "." + table + ": " + e.getMessage(), e);
+        }
+        // Older masters only acknowledge journal sync and leave statusCode unset.
+        if (!response.isSetStatusCode()) {
+            throw new LoadException("Master did not acknowledge Group Commit plan validation");
+        }
+        if (response.getMaxJournalId() < 0) {
+            throw new LoadException("Master could not determine the Group Commit journal position");
+        }
+        if (ctx.getEnv().getReplayedJournalId() < response.getMaxJournalId()) {
+            long remaining = timeoutMs - TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            if (remaining <= 0) {
+                throw new LoadException("Timed out syncing Group Commit metadata");
+            }
+            ctx.getEnv().getJournalObservable().waitOn(response.getMaxJournalId(), (int) remaining);
+        }
+        return response;
     }
 
     public void updateLoadData(long tableId, long receiveData) throws Exception {

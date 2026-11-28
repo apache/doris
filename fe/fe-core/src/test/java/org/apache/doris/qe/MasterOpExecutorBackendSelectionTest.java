@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
@@ -26,6 +27,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.AfterEach;
@@ -42,6 +44,69 @@ public class MasterOpExecutorBackendSelectionTest {
     @AfterEach
     public void resetBackendSelectionProvider() {
         BackendSelectionManager.resetProviderForTest();
+    }
+
+    @Test
+    public void testGroupCommitPlanRequiresExplicitMasterValidation() throws Exception {
+        ConnectContext context = mockConnectContext();
+        Env env = context.getEnv();
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+        TMasterOpResult result = new TMasterOpResult().setMaxJournalId(200L);
+        TestingMasterOpExecutor executor = new TestingMasterOpExecutor(context, result);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertThrows(LoadException.class,
+                    () -> executor.syncJournalAndGetGroupCommitTableStatus("db", "tbl", 5000));
+            result.setStatusCode(TStatusCode.OK.getValue());
+            Mockito.when(env.getReplayedJournalId()).thenReturn(200L);
+            executor.syncJournalAndGetGroupCommitTableStatus("db", "tbl", 5000);
+            JournalObservable journal = env.getJournalObservable();
+            Mockito.verifyNoInteractions(journal);
+            Mockito.when(env.getReplayedJournalId()).thenReturn(199L);
+            executor.syncJournalAndGetGroupCommitTableStatus("db", "tbl", 5000);
+            Mockito.verify(journal).waitOn(Mockito.eq(200L),
+                    Mockito.intThat(timeout -> timeout > 0 && timeout <= 5000));
+            Mockito.doThrow(new DdlException("replay timeout")).when(journal)
+                    .waitOn(Mockito.eq(200L), Mockito.anyInt());
+            Assertions.assertThrows(DdlException.class,
+                    () -> executor.syncJournalAndGetGroupCommitTableStatus("db", "tbl", 5000));
+            Assertions.assertTrue(executor.capturedRequest.isSyncJournalOnly());
+            Assertions.assertEquals("db", executor.capturedRequest.getDb());
+            Assertions.assertEquals("tbl", executor.capturedRequest.getGroupCommitInfo().getTableName());
+            Assertions.assertTrue(executor.capturedRequest.getGroupCommitInfo().isCheckTableBlocked());
+            Assertions.assertEquals(5000, executor.thriftTimeoutMs);
+            result.setMaxJournalId(-1L);
+            Assertions.assertThrows(LoadException.class,
+                    () -> executor.syncJournalAndGetGroupCommitTableStatus("db", "tbl", 5000));
+            result.setMaxJournalId(201L).setStatusCode(TStatusCode.ANALYSIS_ERROR.getValue());
+            TMasterOpResult validation = executor.syncJournalAndGetGroupCommitTableStatus("db", "tbl", 5000);
+            Mockito.verify(journal).waitOn(Mockito.eq(201L), Mockito.anyInt());
+            LoadException noMessage = Assertions.assertThrows(LoadException.class,
+                    () -> MasterOpExecutor.checkGroupCommitResult(validation, "Group Commit planning"));
+            Assertions.assertTrue(noMessage.getMessage().contains("status code: " + result.getStatusCode()));
+            result.setStatusCode(TStatusCode.ANALYSIS_ERROR.getValue())
+                    .setErrMessage("insert table 42 is blocked on schema change");
+            LoadException blocked = Assertions.assertThrows(LoadException.class,
+                    () -> MasterOpExecutor.checkGroupCommitResult(validation, "Group Commit planning"));
+            Assertions.assertTrue(blocked.getMessage().contains("insert table 42 is blocked on schema change"));
+        }
+    }
+
+    @Test
+    public void testGroupCommitValidationReportsRpcFailure() throws Exception {
+        ConnectContext context = mockConnectContext();
+        Env env = context.getEnv();
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+        Exception unavailable = new Exception("catalog not ready");
+        Mockito.doThrow(unavailable).when(env).checkReadyOrThrow();
+        MasterOpExecutor executor = new MasterOpExecutor(context);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            LoadException failure = Assertions.assertThrows(
+                    LoadException.class,
+                    () -> executor.syncJournalAndGetGroupCommitTableStatus("db", "tbl", 5000));
+            Assertions.assertSame(unavailable, failure.getCause());
+        }
     }
 
     @Test
