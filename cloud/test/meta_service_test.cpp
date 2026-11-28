@@ -13168,6 +13168,212 @@ TEST(MetaServiceTest, CreateS3VaultWithIamRole) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
+// An S3 vault on test_bucket
+static StorageVaultPB test_s3_vault(const std::string& name, const std::string& prefix,
+                                    const std::string& ak, int64_t path_version,
+                                    int64_t shard_num = 0,
+                                    const std::string& endpoint = "s3.us-east-1.amazonaws.com") {
+    StorageVaultPB vault;
+    vault.mutable_obj_info()->set_endpoint(endpoint);
+    vault.mutable_obj_info()->set_external_endpoint(endpoint);
+    vault.mutable_obj_info()->set_region("us-east-1");
+    vault.mutable_obj_info()->set_bucket("test_bucket");
+    vault.mutable_obj_info()->set_prefix(prefix);
+    vault.mutable_obj_info()->set_ak(ak);
+    vault.mutable_obj_info()->set_sk("sk");
+    vault.mutable_obj_info()->set_provider(
+            ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+    vault.set_name(name);
+    vault.mutable_path_format()->set_path_version(path_version);
+    vault.mutable_path_format()->set_shard_num(shard_num);
+    return vault;
+}
+
+static AlterObjStoreInfoResponse alter_vault(
+        MetaServiceProxy* meta_service, const StorageVaultPB& vault,
+        AlterObjStoreInfoRequest::Operation op = AlterObjStoreInfoRequest::ADD_S3_VAULT) {
+    AlterObjStoreInfoRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_op(op);
+    req.mutable_vault()->CopyFrom(vault);
+    brpc::Controller cntl;
+    AlterObjStoreInfoResponse res;
+    meta_service->alter_storage_vault(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+    return res;
+}
+
+TEST(MetaServiceTest, CreateS3VaultWithPathFormat) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    auto meta_service = get_meta_service();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("PathFormatTestInstance");
+    instance.set_enable_storage_vault(true);
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto get_vault = [&](const std::string& vault_id) {
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        EXPECT_EQ(txn->get(storage_vault_key({instance.instance_id(), vault_id}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB vault;
+        vault.ParseFromString(val);
+        return vault;
+    };
+
+    auto res = alter_vault(meta_service.get(),
+                           test_s3_vault("s3_vault_path_v1", "prefix_v1", "ak", 1, 1024));
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    auto vault = get_vault(res.storage_vault_id());
+    ASSERT_TRUE(vault.has_path_format());
+    ASSERT_EQ(vault.path_format().path_version(), 1);
+    ASSERT_EQ(vault.path_format().shard_num(), 1024);
+    // Readers follow the path format of an object vault only with this mark
+    ASSERT_TRUE(vault.obj_path_format_effective());
+
+    vault = test_s3_vault("s3_vault_path_absent", "prefix_absent", "ak", 0);
+    vault.clear_path_format();
+    res = alter_vault(meta_service.get(), vault);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    ASSERT_FALSE(get_vault(res.storage_vault_id()).has_path_format());
+    ASSERT_TRUE(get_vault(res.storage_vault_id()).obj_path_format_effective());
+
+    // A vault added through add_vault_into_instance is marked too
+    res = alter_vault(meta_service.get(),
+                      test_s3_vault("s3_vault_via_add_vault", "prefix_add_vault", "ak", 1, 16),
+                      AlterObjStoreInfoRequest::ADD_HDFS_INFO);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    vault = get_vault(res.storage_vault_id());
+    ASSERT_EQ(vault.path_format().path_version(), 1);
+    ASSERT_TRUE(vault.obj_path_format_effective());
+
+    std::vector<std::pair<int64_t, int64_t>> invalid_path_formats {
+            {1, 0}, {1, -1}, {2, 16}, {-1, 0}};
+    for (size_t i = 0; i < invalid_path_formats.size(); ++i) {
+        auto [path_version, shard_num] = invalid_path_formats[i];
+        res = alter_vault(meta_service.get(), test_s3_vault(fmt::format("s3_vault_invalid_{}", i),
+                                                            fmt::format("prefix_invalid_{}", i),
+                                                            "ak", path_version, shard_num));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << i;
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
+TEST(MetaServiceTest, CreateS3VaultRejectsMixedPathVersionOnSameRoot) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    auto meta_service = get_meta_service();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("MixedPathVersionTestInstance");
+    instance.set_enable_storage_vault(true);
+    // A legacy obj info, which uses path_version 0
+    auto* legacy = instance.add_obj_info();
+    legacy->set_id("1");
+    legacy->set_endpoint("s3.us-east-1.amazonaws.com");
+    legacy->set_bucket("test_bucket");
+    legacy->set_prefix("legacy");
+    txn->put(key, instance.SerializeAsString());
+    // An object vault stored before `obj_path_format_effective` existed. Its data was written with
+    // path_version 0, although its path format says 1. Its id is far above the ids the vaults
+    // added below get ("2", "3", ...), which would otherwise overwrite this key.
+    StorageVaultPB unmarked = test_s3_vault("unmarked_v1", "unmarked", "ak0", 1, 1024);
+    unmarked.set_id("100");
+    unmarked.mutable_obj_info()->set_id("100");
+    txn->put(storage_vault_key({instance.instance_id(), "100"}), unmarked.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto add_s3_vault = [&](const std::string& name, const std::string& prefix,
+                            const std::string& ak, int64_t path_version,
+                            const std::string& endpoint = "s3.us-east-1.amazonaws.com") {
+        return alter_vault(meta_service.get(),
+                           test_s3_vault(name, prefix, ak, path_version,
+                                         path_version == 1 ? 1024 : 0, endpoint))
+                .status();
+    };
+
+    // v0 and v1 vaults must not share a root, in either order
+    ASSERT_EQ(add_s3_vault("v0_shared", "shared", "ak1", 0).code(), MetaServiceCode::OK);
+    auto status = add_s3_vault("v1_shared", "shared", "ak2", 1);
+    ASSERT_EQ(status.code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.msg().find("vault v0_shared already uses"), std::string::npos) << status.msg();
+    // Prefixes are stored trimmed, so these are the same root
+    ASSERT_EQ(add_s3_vault("v1_shared_slash", "shared/", "ak2", 1).code(),
+              MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(add_s3_vault("v1_shared_leading", "/shared", "ak2", 1).code(),
+              MetaServiceCode::INVALID_ARGUMENT);
+    // Another name of the same endpoint reaches the same bucket
+    ASSERT_EQ(add_s3_vault("v1_shared_https", "shared", "ak2", 1,
+                           "https://s3.us-east-1.amazonaws.com")
+                      .code(),
+              MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(add_s3_vault("v1_shared_global", "shared", "ak2", 1, "s3.amazonaws.com").code(),
+              MetaServiceCode::INVALID_ARGUMENT);
+    // A vault added through add_vault_into_instance (here ADD_HDFS_INFO carrying an obj info) is
+    // checked too
+    status = alter_vault(meta_service.get(),
+                         test_s3_vault("v1_shared_via_add_vault", "shared", "ak4", 1, 1024),
+                         AlterObjStoreInfoRequest::ADD_HDFS_INFO)
+                     .status();
+    ASSERT_EQ(status.code(), MetaServiceCode::INVALID_ARGUMENT) << status.msg();
+    EXPECT_NE(status.msg().find("vault v0_shared already uses"), std::string::npos) << status.msg();
+    ASSERT_EQ(add_s3_vault("v1_other", "other", "ak1", 1).code(), MetaServiceCode::OK);
+    ASSERT_EQ(add_s3_vault("v0_other", "other", "ak2", 0).code(),
+              MetaServiceCode::INVALID_ARGUMENT);
+    // Vaults with the same path_version can share a root
+    ASSERT_EQ(add_s3_vault("v1_other_2", "other", "ak3", 1).code(), MetaServiceCode::OK);
+    ASSERT_EQ(add_s3_vault("v0_shared_2", "shared", "ak3", 0).code(), MetaServiceCode::OK);
+    // A legacy obj info is path_version 0
+    status = add_s3_vault("v1_legacy", "legacy", "ak1", 1);
+    ASSERT_EQ(status.code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.msg().find("obj_info id=1 already uses"), std::string::npos) << status.msg();
+    ASSERT_EQ(add_s3_vault("v0_legacy", "legacy", "ak2", 0).code(), MetaServiceCode::OK);
+    // An unmarked object vault is path_version 0 whatever its path format says
+    status = add_s3_vault("v1_unmarked", "unmarked", "ak1", 1);
+    ASSERT_EQ(status.code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.msg().find("vault unmarked_v1 already uses"), std::string::npos)
+            << status.msg();
+    EXPECT_NE(status.msg().find("path_version=0"), std::string::npos) << status.msg();
+    ASSERT_EQ(add_s3_vault("v0_unmarked", "unmarked", "ak2", 0).code(), MetaServiceCode::OK);
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
 TEST(MetaServiceTest, AddObjInfoWithRole) {
     auto meta_service = get_meta_service();
 
