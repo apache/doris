@@ -35,6 +35,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -151,6 +152,24 @@ class JdbcDiagnosticsTest {
         Connection connection = proxy(Connection.class, (object, method, args) -> {
             switch (method.getName()) {
                 case "isClosed": return false;
+                case "setAutoCommit":
+                case "close":
+                    return null;
+                case "createStatement":
+                    return proxy(Statement.class, (statement, operation, values) -> {
+                        switch (operation.getName()) {
+                            case "execute": return true;
+                            case "close": return null;
+                            default: throw new UnsupportedOperationException(operation.getName());
+                        }
+                    });
+                case "prepareStatement":
+                    return proxy(PreparedStatement.class, (statement, operation, values) -> {
+                        if (operation.getName().equals("close")) {
+                            return null;
+                        }
+                        throw new UnsupportedOperationException(operation.getName());
+                    });
                 case "commit": throw cause;
                 case "rollback":
                     rollbacks[0]++;
@@ -158,9 +177,24 @@ class JdbcDiagnosticsTest {
                 default: throw new UnsupportedOperationException(method.getName());
             }
         });
-        field(writer, "conn", connection);
-        assertDiagnostic(Assertions.assertThrows(IOException.class, writer::close), cause, "close");
-        Assertions.assertEquals(1, rollbacks[0]);
+        Method cacheKey = JdbcJniWriter.class.getDeclaredMethod("createCacheKey");
+        cacheKey.setAccessible(true);
+        String key = (String) cacheKey.invoke(writer);
+        try (HikariDataSource pool = new HikariDataSource() {
+            @Override
+            public Connection getConnection() {
+                return connection;
+            }
+        }) {
+            JdbcDataSource.getDataSource().putSource(key, pool);
+            try {
+                writer.open();
+                assertDiagnostic(Assertions.assertThrows(IOException.class, writer::close), cause, "close");
+                Assertions.assertEquals(1, rollbacks[0]);
+            } finally {
+                JdbcDataSource.getDataSource().getSourcesMap().remove(key, pool);
+            }
+        }
     }
 
     private static void assertDiagnostic(IOException error, SQLException cause, String operation) {

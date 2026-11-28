@@ -27,6 +27,22 @@ import java.time.Duration;
 
 class JdbcExceptionUtilsTest {
     @Test
+    void suppressedCleanupDiagnosticsAreOrderedRedactedAndCycleSafe() {
+        SQLException primary = new SQLException("query failed", "42000", 1001);
+        SQLException cleanup = new SQLException("pwd=cleanup-secret jdbc:mysql://hidden/db", "08006", 1002);
+        primary.addSuppressed(cleanup);
+        cleanup.addSuppressed(primary);
+        String diagnostic = Assertions.assertTimeoutPreemptively(Duration.ofSeconds(2),
+                () -> JdbcExceptionUtils.format("open", primary));
+        Assertions.assertTrue(diagnostic.indexOf("remote_vendor_error_code=1001")
+                < diagnostic.indexOf("remote_vendor_error_code=1002"));
+        Assertions.assertEquals(diagnostic.indexOf("remote_vendor_error_code=1002"),
+                diagnostic.lastIndexOf("remote_vendor_error_code=1002"));
+        Assertions.assertFalse(diagnostic.contains("cleanup-secret"));
+        Assertions.assertFalse(diagnostic.contains("hidden/db"));
+    }
+
+    @Test
     void reportsRemoteCodesSeparatelyFromTheOperationContext() {
         SQLException cause = new SQLException("bad syntax", "42000", 1064);
         JdbcIOException error = new JdbcIOException("scan open failed", cause);

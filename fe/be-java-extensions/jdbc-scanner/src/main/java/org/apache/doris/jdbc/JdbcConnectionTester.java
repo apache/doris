@@ -146,8 +146,7 @@ public class JdbcConnectionTester extends JniScanner {
                         if (connectionPoolKeepAlive) {
                             ds.setKeepaliveTime(connectionPoolMaxLifeTime / 5L);
                         }
-                        hikariDataSource = ds;
-                        JdbcDataSource.getDataSource().putSource(cacheKey, hikariDataSource);
+                        hikariDataSource = JdbcDataSource.getDataSource().putSourceIfAbsent(cacheKey, ds);
                     }
                 }
             }

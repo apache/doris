@@ -18,6 +18,7 @@
 #pragma once
 
 #include <map>
+#include <optional>
 #include <string>
 
 #include "format/transformer/vfile_format_transformer.h"
@@ -64,6 +65,7 @@ public:
 
 private:
     Status _init_jni_writer(JNIEnv* env, int batch_size);
+    Status _close_with_env(Status (*get_env)(JNIEnv**));
 
     std::string _plugin;
     std::string _factory;
@@ -81,7 +83,7 @@ private:
     std::string _cached_columns_types;
 
     bool _opened = false;
-    bool _closed = false;
+    std::optional<Status> _close_result;
 };
 
 } // namespace doris

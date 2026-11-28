@@ -215,16 +215,17 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
         PreparedStatement stmt = conn.prepareStatement(sql,
                 ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
         // MySQL: Integer.MIN_VALUE signals streaming results to avoid OOM
-        stmt.setFetchSize(Integer.MIN_VALUE);
-        return stmt;
+        return JdbcCleanup.setFetchSizeOrClose(stmt, Integer.MIN_VALUE);
     }
 
     @Override
-    public void abortReadConnection(Connection conn, ResultSet rs) throws SQLException {
+    public boolean abortReadConnection(Connection conn, ResultSet rs) throws SQLException {
         if (rs != null && !rs.isAfterLast()) {
             // Abort connection to avoid draining all remaining results
             conn.abort(MoreExecutors.directExecutor());
+            return true;
         }
+        return false;
     }
 
     @Override

@@ -108,12 +108,14 @@ public class SQLServerTypeHandler extends DefaultTypeHandler {
     }
 
     @Override
-    public void abortReadConnection(Connection conn, ResultSet rs) throws SQLException {
+    public boolean abortReadConnection(Connection conn, ResultSet rs) throws SQLException {
         if (rs != null && !rs.isAfterLast()) {
             // SQLServer driver attempts to drain results on close.
             // Abort connection to prevent this behavior.
             conn.abort(MoreExecutors.directExecutor());
+            return true;
         }
+        return false;
     }
 
     @Override

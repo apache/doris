@@ -106,17 +106,18 @@ public interface JdbcTypeHandler {
                                                  int fetchSize) throws SQLException {
         PreparedStatement stmt = conn.prepareStatement(sql,
                 ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-        stmt.setFetchSize(fetchSize);
-        return stmt;
+        return JdbcCleanup.setFetchSizeOrClose(stmt, fetchSize);
     }
 
     /**
      * Abort a read connection properly before closing resources.
      * Some databases (MySQL, SQLServer) need to abort() the connection to avoid
      * draining all remaining results, which can cause hangs on large result sets.
+     *
+     * @return true only when the physical connection was successfully aborted
      */
-    default void abortReadConnection(Connection conn, ResultSet rs) throws SQLException {
-        // default: no-op
+    default boolean abortReadConnection(Connection conn, ResultSet rs) throws SQLException {
+        return false;
     }
 
     /**
