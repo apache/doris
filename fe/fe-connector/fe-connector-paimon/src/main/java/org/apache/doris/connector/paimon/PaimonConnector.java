@@ -561,6 +561,9 @@ public class PaimonConnector implements Connector {
                         ? createHmsCatalog(catalogContext, hmsAuth, catalogProps.getRaw(),
                                 storageHadoopConfig)
                         : CatalogFactory.createUnwrappedCatalog(catalogContext, getClass().getClassLoader());
+                // SDK 2.1 removed warehouse ACL enforcement. Check before a cache wrapper takes
+                // ownership, while FileIO probes and rejected-catalog cleanup remain authenticated.
+                PaimonCatalogCompatibility.requireSupportedPrivileges(catalog);
                 return PaimonMetaCacheCatalog.tryToCreate(catalog, metaCache,
                         DEFAULT_TABLE_CACHE_CAPACITY, resolveTableCacheTtlSecond(catalogProps.getRaw()),
                         catalogContext.options(), PaimonCatalogFactory.isCatalogCacheEnabled(catalogProps),

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.properties.DistributionSpecAny;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -38,11 +39,12 @@ public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFact
                     DistributionSpecAny.INSTANCE,
                     Optional.empty(),
                     fileScan.getLogicalProperties(),
+                    PhysicalProperties.ANY, null,
                     fileScan.getSelectedPartitions(),
                     fileScan.getTableSample(),
                     fileScan.getTableSnapshot(),
                     fileScan.getOperativeSlots(),
-                    fileScan.getScanParams())
+                    fileScan.getScanParams(), fileScan.getVectorSearch())
         ).toRule(RuleType.LOGICAL_FILE_SCAN_TO_PHYSICAL_FILE_SCAN_RULE);
     }
 }

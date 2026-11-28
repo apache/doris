@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonReaderType;
+import org.apache.doris.thrift.TPaimonVectorPayloadType;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.junit.jupiter.api.Assertions;
@@ -84,4 +85,42 @@ public class PaimonScanRangeReaderTypeTest {
                 formatDesc.getPaimonParams().getOriginalFilePath(),
                 "metadata columns must expose RawFile.path(), not the normalized BE read path");
     }
+
+    @Test
+    public void vectorSplitKeepsBucketPayloadAndRustDispatch() {
+        byte[] payload = new byte[] {1, 2, 3};
+        PaimonScanRange range = new PaimonScanRange.Builder()
+                .fileFormat("parquet")
+                .selfSplitWeight(7)
+                .vectorSplit(payload, "file:///table", "db", "table", "schema-json", "branch-a")
+                .build();
+        payload[0] = 99;
+        TFileRangeDesc fileRange = new TFileRangeDesc();
+        TTableFormatFileDesc format = new TTableFormatFileDesc();
+        range.populateRangeParams(format, fileRange);
+        Assertions.assertEquals(TPaimonReaderType.PAIMON_RUST, format.getPaimonParams().getReaderType());
+        Assertions.assertEquals("", format.getPaimonParams().getPaimonSplit());
+        Assertions.assertEquals("file:///table", format.getPaimonParams().getPaimonTable());
+        Assertions.assertEquals("schema-json", format.getPaimonParams().getPaimonTableSchemaJson());
+        Assertions.assertEquals("branch-a", format.getPaimonParams().getPaimonBranch());
+        Assertions.assertEquals(TPaimonVectorPayloadType.BUCKET_SPLIT_BYTES,
+                format.getPaimonParams().getVectorPayload().getPayloadType());
+        Assertions.assertArrayEquals(new byte[] {1, 2, 3}, format.getPaimonParams().getVectorPayload().getBytes());
+        Assertions.assertEquals(7, fileRange.getSelfSplitWeight());
+        Assertions.assertFalse(range.isNativeReadRange());
+        Assertions.assertEquals(-1, range.getPushDownRowCount());
+    }
+
+    @Test
+    public void vectorSplitIdentityDistinguishesBucketsAtTheSameTableRoot() {
+        PaimonScanRange first = new PaimonScanRange.Builder().path("file:///table")
+                .vectorSplit(new byte[] {1}, "file:///table", "db", "t", "schema", null).build();
+        PaimonScanRange second = new PaimonScanRange.Builder().path("file:///table")
+                .vectorSplit(new byte[] {2}, "file:///table", "db", "t", "schema", null).build();
+        Assertions.assertNotEquals(first.getSplitIdentity(), second.getSplitIdentity());
+        Assertions.assertEquals(first.getSplitIdentity(), new PaimonScanRange.Builder().path("file:///table")
+                .vectorSplit(new byte[] {1}, "file:///table", "db", "t", "schema", null).build()
+                .getSplitIdentity());
+    }
+
 }

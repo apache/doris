@@ -25,6 +25,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorVectorSearch;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -49,12 +50,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical file scan for external catalog.
@@ -68,6 +71,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     // Collection preloads this reference before locking. CTE copies have fresh relation/ExprIds but
     // must still consume the same prepared view, without repeating connector IO under internal locks.
     private final RelationId preloadRelationId;
+    private final Optional<ConnectorVectorSearch> vectorSearch;
 
     /**
      * Constructor for LogicalFileScan.
@@ -97,7 +101,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             String tableAlias, Optional<List<Slot>> cachedSlots) {
         this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, logicalProperties, tableAlias, cachedSlots, id);
+                scanParams, groupExpression, logicalProperties, tableAlias, cachedSlots, id, Optional.empty());
     }
 
     private LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
@@ -105,10 +109,12 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             List<NamedExpression> virtualColumns, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            String tableAlias, Optional<List<Slot>> cachedSlots, RelationId preloadRelationId) {
+            String tableAlias, Optional<List<Slot>> cachedSlots, RelationId preloadRelationId,
+            Optional<ConnectorVectorSearch> vectorSearch) {
         super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier, operativeSlots, virtualColumns,
                 groupExpression, logicalProperties, tableAlias);
         this.preloadRelationId = preloadRelationId;
+        this.vectorSearch = vectorSearch;
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
@@ -124,6 +130,41 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, "", cachedOutputs);
+    }
+
+    public Optional<ConnectorVectorSearch> getVectorSearch() {
+        return vectorSearch;
+    }
+
+    /** Add the reader-produced distance while retaining this relation's prepared metadata identity. */
+    public LogicalFileScan withVectorSearch(SlotReference distance, ConnectorVectorSearch search) {
+        List<Slot> outputs = ImmutableList.<Slot>builder().addAll(getOutput()).add(distance).build();
+        List<Slot> required = ImmutableList.<Slot>builder().addAll(operativeSlots).add(distance).build();
+        List<NamedExpression> virtual = ImmutableList.<NamedExpression>builder()
+                .addAll(virtualColumns).add(distance).build();
+        return new LogicalFileScan(relationId, getTable(), qualifier, selectedPartitions, required,
+                virtual, tableSample, tableSnapshot, scanParams, Optional.empty(), Optional.empty(), tableAlias,
+                Optional.of(outputs), preloadRelationId, Optional.of(search));
+    }
+
+    /** Replace virtual outputs and scan requirements while retaining the physical slots' ExprIds. */
+    @Override
+    public LogicalFileScan withVirtualColumns(List<NamedExpression> virtualColumns) {
+        Set<ExprId> oldVirtualIds = this.virtualColumns.stream()
+                .map(NamedExpression::getExprId).collect(ImmutableSet.toImmutableSet());
+        Builder<Slot> outputs = ImmutableList.builder();
+        getOutput().stream().filter(slot -> !oldVirtualIds.contains(slot.getExprId())).forEach(outputs::add);
+        Builder<Slot> required = ImmutableList.builder();
+        operativeSlots.stream().filter(slot -> !oldVirtualIds.contains(slot.getExprId())).forEach(required::add);
+        for (NamedExpression column : virtualColumns) {
+            Slot slot = column.toSlot();
+            outputs.add(slot);
+            required.add(slot);
+        }
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, getTable(), qualifier, selectedPartitions, required.build(),
+                virtualColumns, tableSample, tableSnapshot, scanParams, groupExpression, Optional.empty(), tableAlias,
+                Optional.of(outputs.build()), preloadRelationId, vectorSearch));
     }
 
     public RelationId getPreloadRelationId() {
@@ -173,7 +214,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs, preloadRelationId));
+                cachedOutputs, preloadRelationId, vectorSearch));
     }
 
     @Override
@@ -182,7 +223,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, logicalProperties, tableAlias, cachedOutputs, preloadRelationId));
+                scanParams, groupExpression, logicalProperties, tableAlias,
+                cachedOutputs, preloadRelationId, vectorSearch));
     }
 
     public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
@@ -190,7 +232,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs, preloadRelationId));
+                cachedOutputs, preloadRelationId, vectorSearch));
     }
 
     /**
@@ -208,7 +250,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, Optional.empty(), Optional.empty(), tableAlias, cachedOutputs, preloadRelationId));
+                scanParams, Optional.empty(), Optional.empty(), tableAlias,
+                cachedOutputs, preloadRelationId, vectorSearch));
     }
 
     public LogicalFileScan withTableAlias(String tableAlias) {
@@ -216,7 +259,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs, preloadRelationId));
+                cachedOutputs, preloadRelationId, vectorSearch));
     }
 
     @Override
@@ -226,7 +269,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     public boolean equals(Object o) {
-        return super.equals(o) && Objects.equals(selectedPartitions, ((LogicalFileScan) o).selectedPartitions);
+        return super.equals(o) && Objects.equals(selectedPartitions, ((LogicalFileScan) o).selectedPartitions)
+                && vectorSearch.equals(((LogicalFileScan) o).vectorSearch);
     }
 
     @Override
@@ -238,7 +282,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return Objects.equals(selectedPartitions, that.selectedPartitions)
                 && Objects.equals(tableSample, that.tableSample)
                 && hasSameSnapshot(tableSnapshot, that.tableSnapshot)
-                && hasSameScanParams(scanParams, that.scanParams);
+                && hasSameScanParams(scanParams, that.scanParams)
+                && vectorSearch.equals(that.vectorSearch);
     }
 
     @Override
@@ -304,7 +349,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             // below is dead for them. Field ids are NOT required here: a connector addressed by name
             // (paimon, fluss) declares SUPPORTS_NESTED_COLUMN_PRUNE alone, and only the separate
             // SUPPORTS_FIELD_ID_ACCESS_PATH lets SlotTypeReplacer rewrite the paths to ids.
-            return ((PluginDrivenExternalTable) table).supportsNestedColumnPrune();
+            return !vectorSearch.isPresent() && ((PluginDrivenExternalTable) table).supportsNestedColumnPrune();
         }
         return false;
     }
@@ -544,7 +589,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs, preloadRelationId));
+                cachedOutputs, preloadRelationId, vectorSearch));
     }
 
     public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
@@ -552,7 +597,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.empty(), tableAlias,
-                Optional.of(cachedOutputs), preloadRelationId));
+                Optional.of(cachedOutputs), preloadRelationId, vectorSearch));
     }
 
     @Override
