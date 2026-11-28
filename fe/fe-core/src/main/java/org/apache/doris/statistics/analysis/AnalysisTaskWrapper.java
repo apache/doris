@@ -18,7 +18,6 @@
 package org.apache.doris.statistics.analysis;
 
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.statistics.analysis.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -27,88 +26,66 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalTime;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.FutureTask;
 
 public class AnalysisTaskWrapper extends FutureTask<Void> {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisTaskWrapper.class);
-    private static final String STATISTICS_ANALYZE_OOM_HINT = "For statistics analyze, you can increase "
-            + "`statistics_sql_mem_limit_in_bytes`, decrease `huge_table_default_sample_rows`, "
-            + "or use `statistics_max_string_column_length` to skip large string columns.";
-
     private final BaseAnalysisTask task;
 
     private long startTime;
 
     private final AnalysisTaskExecutor executor;
 
-    public AnalysisTaskWrapper(AnalysisTaskExecutor executor, BaseAnalysisTask job) {
+    public AnalysisTaskWrapper(AnalysisTaskExecutor executor, BaseAnalysisTask task) {
         super(() -> {
-            job.execute();
+            task.execute();
             return null;
         });
         this.executor = executor;
-        this.task = job;
+        this.task = task;
     }
 
     @Override
     public void run() {
         startTime = System.currentTimeMillis();
-        Throwable except = null;
+        if (task.killed) {
+            return;
+        }
+        if (task.info.scheduleType == ScheduleType.AUTOMATIC
+                && !StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
+            task.job.fail("Auto task doesn't get executed within specified time range");
+            return;
+        }
         try {
-            if (task.killed) {
-                return;
-            }
-            if (task.info.scheduleType.equals(ScheduleType.AUTOMATIC) && !StatisticsUtil.inAnalyzeTime(
-                    LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
-                // TODO: Do we need a separate AnalysisState here?
-                task.job.taskFailed(task, "Auto task"
-                                + "doesn't get executed within specified time range");
-                return;
-            }
             executor.putJob(this);
             super.run();
-            Object result = get();
-            if (result instanceof Throwable) {
-                except = (Throwable) result;
-            }
+            get();
+        } catch (CancellationException e) {
+            return; // The cancelling thread handles job cleanup.
         } catch (Exception e) {
-            except = e;
-        } finally {
-            if (!task.killed) {
-                if (except != null) {
-                    LOG.warn("Analyze {} failed.", task.toString(), except);
-                    if (MetricRepo.isInit) {
-                        MetricRepo.COUNTER_STATISTICS_FAILED_ANALYZE_TASK.increase(1L);
-                    }
-                    task.job.taskFailed(task, appendStatisticsAnalyzeOOMHint(Util.getRootCauseMessage(except)));
-                } else {
-                    if (MetricRepo.isInit) {
-                        MetricRepo.COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK.increase(1L);
-                    }
-                }
+            LOG.warn("Analyze {} failed.", task, e);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_STATISTICS_FAILED_ANALYZE_TASK.increase(1L);
             }
+            task.job.fail(StatisticsUtil.analyzeFailureMessage(e));
+            return;
+        }
+        if (!task.killed && MetricRepo.isInit) {
+            MetricRepo.COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK.increase(1L);
         }
     }
 
     public boolean cancel(String msg) {
         try {
             LOG.warn("{} cancelled, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
-            task.cancel();
+            task.job.fail(msg);
         } catch (Exception e) {
-            LOG.warn(String.format("Cancel job failed job info : %s",
-                    appendStatisticsAnalyzeOOMHint(Util.getRootCauseMessage(e))));
+            LOG.warn("Failed to cancel analysis job for {}", task, e);
         }
-        // Interrupt thread when it's writing metadata would cause FE crush.
+        // A task may still be writing metadata.
         return super.cancel(false);
-    }
-
-    private String appendStatisticsAnalyzeOOMHint(String msg) {
-        if (msg == null || !msg.contains("MEM_LIMIT_EXCEEDED")
-                || msg.contains("statistics_sql_mem_limit_in_bytes")) {
-            return msg;
-        }
-        return msg + "\n" + STATISTICS_ANALYZE_OOM_HINT;
     }
 
     public long getStartTime() {

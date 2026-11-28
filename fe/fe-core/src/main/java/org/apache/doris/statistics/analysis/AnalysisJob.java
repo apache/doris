@@ -18,23 +18,21 @@
 package org.apache.doris.statistics.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.qe.AuditLogHelper;
+import org.apache.doris.common.Status;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -42,180 +40,276 @@ import java.util.StringJoiner;
 
 public class AnalysisJob {
 
-    public static final Logger LOG = LogManager.getLogger(AnalysisJob.class);
+    private final Set<BaseAnalysisTask> queryingTasks;
+    private List<BaseAnalysisTask> tasksAwaitingFlush = new ArrayList<>();
+    private List<ColStatsData> bufferedStats = new ArrayList<>();
 
-    protected Set<BaseAnalysisTask> queryingTask;
+    @VisibleForTesting
+    volatile StmtExecutor stmtExecutor;
+    private volatile AnalysisState state = AnalysisState.RUNNING;
+    private final List<BaseAnalysisTask> tasks;
 
-    protected Set<BaseAnalysisTask> queryFinished;
+    // Guarded by this. A writer relinquishes ownership under the same lock used to append results.
+    private boolean flushing;
 
-    protected List<ColStatsData> buf;
-
-    protected StmtExecutor stmtExecutor;
-
-    protected boolean killed;
-
-    protected long start;
-
-    protected AnalysisInfo jobInfo;
-
-    protected AnalysisManager analysisManager;
+    private volatile AnalysisInfo jobInfo;
+    private boolean historyDropped;
+    private final AnalysisManager analysisManager;
 
     public AnalysisJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> queryingTask) {
+        this(jobInfo, queryingTask, Env.getCurrentEnv().getAnalysisManager());
+    }
+
+    AnalysisJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> queryingTask,
+            AnalysisManager analysisManager) {
         for (BaseAnalysisTask task : queryingTask) {
             task.job = this;
         }
-        this.queryingTask = Collections.synchronizedSet(new HashSet<>(queryingTask));
-        this.queryFinished = Collections.synchronizedSet(new HashSet<>());
-        this.buf = new ArrayList<>();
-        start = System.currentTimeMillis();
+        this.tasks = new ArrayList<>(queryingTask);
+        this.queryingTasks = new HashSet<>(queryingTask);
         this.jobInfo = jobInfo;
-        this.analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        this.analysisManager = analysisManager;
     }
 
-    public synchronized void taskDoneWithoutData(BaseAnalysisTask task) {
-        queryingTask.remove(task);
-        queryFinished.add(task);
-        markOneTaskDone();
+    public void taskDoneWithoutData(BaseAnalysisTask task) {
+        appendBuf(task, List.of());
     }
 
-    public synchronized void appendBuf(BaseAnalysisTask task, List<ColStatsData> statsData) {
-        queryingTask.remove(task);
-        buf.addAll(statsData);
-        queryFinished.add(task);
-        markOneTaskDone();
+    void taskDoneWithoutData(BaseAnalysisTask task, String message) {
+        appendBuf(task, List.of(), message);
     }
 
-    protected void markOneTaskDone() {
-        if (queryingTask.isEmpty()) {
+    public void appendBuf(BaseAnalysisTask task, List<ColStatsData> statsData) {
+        appendBuf(task, statsData, "");
+    }
+
+    private void appendBuf(BaseAnalysisTask task, List<ColStatsData> statsData, String message) {
+        synchronized (this) {
+            if (isTerminated() || !queryingTasks.remove(task)) {
+                return;
+            }
+            if (!message.isEmpty()) {
+                task.info.message = message;
+            }
+            bufferedStats.addAll(statsData);
+            tasksAwaitingFlush.add(task);
+            if (flushing) {
+                return;
+            }
+            flushing = true;
+        }
+        flushReadyBatches();
+    }
+
+    private void flushReadyBatches() {
+        try {
+            while (true) {
+                List<ColStatsData> rows;
+                List<BaseAnalysisTask> batch;
+                synchronized (this) {
+                    if (isTerminated()) {
+                        return;
+                    }
+                    if (tasksAwaitingFlush.isEmpty() || (!queryingTasks.isEmpty()
+                            && bufferedStats.size() < StatisticsUtil.getInsertMergeCount())) {
+                        flushing = false;
+                        return;
+                    }
+                    rows = bufferedStats;
+                    batch = tasksAwaitingFlush;
+                    bufferedStats = new ArrayList<>();
+                    tasksAwaitingFlush = new ArrayList<>();
+                }
+
+                if (!rows.isEmpty()) {
+                    insertColumnStats(rows);
+                }
+
+                synchronized (this) {
+                    if (isTerminated()) {
+                        return;
+                    }
+                    updateTaskStates(batch, AnalysisState.FINISHED, "");
+                    if (queryingTasks.isEmpty() && tasksAwaitingFlush.isEmpty()) {
+                        state = AnalysisState.FINISHED;
+                        break;
+                    }
+                }
+            }
+        } catch (RuntimeException | Error e) {
             try {
-                flushBuffer();
-            } finally {
-                deregisterJob();
+                fail(StatisticsUtil.analyzeFailureMessage(e));
+            } catch (RuntimeException cleanupFailure) {
+                if (cleanupFailure != e) {
+                    e.addSuppressed(cleanupFailure);
+                }
             }
-        } else if (buf.size() >= StatisticsUtil.getInsertMergeCount()) {
-            flushBuffer();
+            throw e;
         }
+        complete(null);
     }
 
-    // CHECKSTYLE OFF
-    // fallthrough here is expected
-    public void updateTaskState(AnalysisState state, String msg) {
+    private void updateTaskStates(List<BaseAnalysisTask> batch, AnalysisState state, String message) {
         long time = System.currentTimeMillis();
-        switch (state) {
-            case FAILED:
-                for (BaseAnalysisTask task : queryingTask) {
-                    analysisManager.updateTaskStatus(task.info, state, msg, time);
-                    task.cancel();
-                }
-                killed = true;
-            case FINISHED:
-                for (BaseAnalysisTask task : queryFinished) {
-                    // When flushBuffer passes an empty msg, fall back to the
-                    // task's own info.message. This propagates a skip reason
-                    // previously stashed by BaseAnalysisTask.handleSkip into
-                    // the single FINISHED update for this task, so job.message
-                    // accumulation in AnalysisManager sees it and SHOW ANALYZE
-                    // surfaces the skip reason at the job level.
-                    String taskMsg = msg;
-                    if ((taskMsg == null || taskMsg.isEmpty()) && task.info != null) {
-                        taskMsg = task.info.message;
-                    }
-                    if (taskMsg == null) {
-                        taskMsg = "";
-                    }
-                    analysisManager.updateTaskStatus(task.info, state, taskMsg, time);
-                }
-            default:
-                // DO NOTHING
+        RuntimeException failure = null;
+        for (BaseAnalysisTask task : batch) {
+            try {
+                analysisManager.updateTaskStatus(task.info, state, message, time);
+            } catch (RuntimeException e) {
+                failure = combineFailures(failure, e);
+            }
+        }
+        if (failure != null) {
+            throw failure;
         }
     }
 
-    protected void flushBuffer() {
-        if (killed) {
-            return;
+    private void insertColumnStats(List<ColStatsData> rows) {
+        StringJoiner values = new StringJoiner(",");
+        for (ColStatsData row : rows) {
+            values.add(row.toSQL(true));
         }
-        // buf could be empty when nothing need to do,r for example user submit an analysis task for table with no data
-        // change
-        if (!buf.isEmpty())  {
-            String insertStmt = StatisticConstants.INSERT_INTO_COLUMN_STATS_PREFIX;
-            StringJoiner values = new StringJoiner(",");
-            for (ColStatsData data : buf) {
-                values.add(data.toSQL(true));
+        String insertStmt = StatisticConstants.INSERT_INTO_COLUMN_STATS_PREFIX + values;
+        try (AutoCloseConnectContext context = StatisticsUtil.buildConnectContext(false)) {
+            ConnectContext ctx = context.connectContext;
+            ctx.setSqlHash(DigestUtils.md5Hex(insertStmt));
+            StmtExecutor executor = new StmtExecutor(ctx, insertStmt);
+            stmtExecutor = executor;
+            if (!isTerminated()) {
+                executeInsert(executor);
             }
-            insertStmt += values.toString();
-            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-                ConnectContext context = r.connectContext;
-                context.setSqlHash(DigestUtils.md5Hex(insertStmt));
-                stmtExecutor = new StmtExecutor(context, insertStmt);
-                executeWithExceptionOnFail(stmtExecutor);
-            } catch (Exception t) {
-                throw new RuntimeException("Failed to analyze: " + t.getMessage());
-            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to write column statistics", e);
+        } finally {
+            // Keep the cancellation handle available until execution and audit logging finish.
+            stmtExecutor = null;
         }
-        updateTaskState(AnalysisState.FINISHED, "");
-        queryFinished.clear();
-        buf.clear();
     }
 
-    protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
-        if (killed) {
-            return;
+    @VisibleForTesting
+    void executeInsert(StmtExecutor executor) throws Exception {
+        StatisticsUtil.executeAnalyzeInsert(executor);
+    }
+
+    public void fail(String reason) {
+        synchronized (this) {
+            if (isTerminated()) {
+                return;
+            }
+            state = AnalysisState.FAILED;
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
-        }
+
         try {
-            stmtExecutor.execute();
-            QueryState queryState = stmtExecutor.getContext().getState();
-            if (queryState.getStateType().equals(MysqlStateType.ERR)) {
-                throw new RuntimeException(
-                        "Failed to insert : " + stmtExecutor.getOriginStmt().originStmt + "Error msg: "
-                                + queryState.getErrorMessage());
+            RuntimeException failure = cancelExecutors(reason);
+            try {
+                updateTaskStates(tasks, AnalysisState.FAILED, reason);
+            } catch (RuntimeException e) {
+                failure = combineFailures(failure, e);
+            }
+            if (failure != null) {
+                throw failure;
             }
         } finally {
-            AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().originStmt,
-                    stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(),
-                    true);
+            complete(reason);
         }
     }
 
-    public void taskFailed(BaseAnalysisTask task, String reason) {
+    private RuntimeException cancelExecutors(String reason) {
+        RuntimeException failure = null;
+        StmtExecutor executor = stmtExecutor;
         try {
-            updateTaskState(AnalysisState.FAILED, reason);
-            cancel();
-        } finally {
-            // All task threads have been marked killed by cancel(), so the guarded
-            // partitionUpdateRows writers have stopped. Clear the shared map here, after
-            // the cancels (the terminal-state clear inside updateTaskStatus runs while
-            // sibling threads may still be executing and can miss in-flight writes), so
-            // the job and all its task records release the map at once.
-            if (jobInfo.partitionUpdateRows != null) {
-                jobInfo.partitionUpdateRows.clear();
+            if (executor != null) {
+                executor.cancel(new Status(TStatusCode.CANCELLED, reason));
             }
-            deregisterJob();
+        } catch (RuntimeException e) {
+            failure = e;
+        }
+        for (BaseAnalysisTask task : tasks) {
+            try {
+                task.cancel();
+            } catch (RuntimeException e) {
+                failure = combineFailures(failure, e);
+            }
+        }
+        return failure;
+    }
+
+    private static RuntimeException combineFailures(RuntimeException failure, RuntimeException next) {
+        if (failure == null) {
+            return next;
+        }
+        if (failure != next) {
+            failure.addSuppressed(next);
+        }
+        return failure;
+    }
+
+    synchronized void putPartitionUpdateRowsIfAbsent(long partitionId, long rows) {
+        if (!isTerminated()) {
+            jobInfo.partitionUpdateRows.putIfAbsent(partitionId, rows);
+        }
+    }
+
+    synchronized void recordIndexRowCount(long indexId, long rowCount) {
+        if (!isTerminated()) {
+            jobInfo.addIndexRowCount(indexId, rowCount);
+        }
+    }
+
+    synchronized void markSampleFallback() {
+        if (isTerminated() || !analysisManager.isAsyncJob(jobInfo.jobId)
+                || jobInfo.analysisMethod == AnalysisMethod.SAMPLE) {
+            return;
+        }
+        AnalysisInfo sample = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
+        sample.markStartTime(jobInfo.startTime);
+        sample.indexesRowCount.putAll(jobInfo.indexesRowCount);
+        jobInfo = sample;
+        if (!historyDropped) {
+            analysisManager.replayCreateAnalysisJob(sample);
         }
     }
 
     public void cancel() {
-        for (BaseAnalysisTask task : queryingTask) {
-            task.cancel();
+        fail("analysis job cancelled");
+    }
+
+    private void complete(String reason) {
+        try {
+            analysisManager.finishJob(this, state, reason);
+        } finally {
+            analysisManager.removeJob(jobInfo.jobId);
+            synchronized (this) {
+                // Synchronous callers consume this metadata after the workers return.
+                if (state == AnalysisState.FAILED) {
+                    // Task records share these collections with the job record.
+                    if (jobInfo.jobColumns != null) {
+                        jobInfo.jobColumns.clear();
+                    }
+                    if (jobInfo.partitionNames != null) {
+                        jobInfo.partitionNames.clear();
+                    }
+                    jobInfo.partitionUpdateRows.clear();
+                }
+                tasks.clear();
+                queryingTasks.clear();
+                tasksAwaitingFlush.clear();
+                bufferedStats.clear();
+            }
         }
     }
 
-    public void deregisterJob() {
-        analysisManager.removeJob(jobInfo.jobId);
-        for (BaseAnalysisTask task : queryingTask) {
-            task.info.jobColumns.clear();
-            if (task.info.partitionNames != null) {
-                task.info.partitionNames.clear();
-            }
-        }
-        for (BaseAnalysisTask task : queryFinished) {
-            task.info.jobColumns.clear();
-            if (task.info.partitionNames != null) {
-                task.info.partitionNames.clear();
-            }
-        }
+    boolean isTerminated() {
+        return state != AnalysisState.RUNNING;
+    }
+
+    // Called under this monitor, which serializes history deletion and publication.
+    void markHistoryDropped() {
+        historyDropped = true;
+    }
+
+    boolean isHistoryDropped() {
+        return historyDropped;
     }
 
     public AnalysisInfo getJobInfo() {
