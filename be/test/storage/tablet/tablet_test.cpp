@@ -456,4 +456,88 @@ TEST_F(TestTablet, get_local_versions) {
     ASSERT_EQ(local_versions.size(), 20);
 }
 
+TEST_F(TestTablet, compaction_failure_backoff) {
+    const auto old_sched_delay_ms = config::tablet_sched_delay_time_ms;
+    const auto old_max_backoff = config::compaction_failure_backoff_max_second;
+    const auto old_skip_second = config::skip_tablet_compaction_second;
+    Defer restore_config {[&]() {
+        config::tablet_sched_delay_time_ms = old_sched_delay_ms;
+        config::compaction_failure_backoff_max_second = old_max_backoff;
+        config::skip_tablet_compaction_second = old_skip_second;
+    }};
+    config::tablet_sched_delay_time_ms = 5000;
+    config::compaction_failure_backoff_max_second = 300;
+    config::skip_tablet_compaction_second = 10;
+
+    // second-aligned fixed time point to keep the assertion boundaries deterministic
+    const int64_t t0_ms = 1000000000000;
+    const int64_t t0 = t0_ms / 1000;
+
+    TabletSharedPtr tablet(new Tablet(*k_engine, _tablet_meta, nullptr));
+
+    // no failure recorded: nothing is skipped
+    EXPECT_FALSE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, t0));
+    EXPECT_FALSE(tablet->should_skip_compaction(CompactionType::BASE_COMPACTION, t0));
+
+    // 1st cumu failure: backoff is the base delay (5s) counted from the failure time
+    tablet->note_cumu_compaction_failure(t0_ms);
+    EXPECT_TRUE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, t0 + 4));
+    EXPECT_FALSE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, t0 + 5));
+    // base compaction is not affected by cumu failures
+    EXPECT_FALSE(tablet->should_skip_compaction(CompactionType::BASE_COMPACTION, t0));
+
+    // 2nd consecutive failure: backoff doubles to 10s from the new failure time
+    tablet->note_cumu_compaction_failure(t0_ms + 5000);
+    EXPECT_TRUE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, t0 + 5 + 9));
+    EXPECT_FALSE(
+            tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, t0 + 5 + 10));
+
+    // 3rd consecutive failure: 20s
+    tablet->note_cumu_compaction_failure(t0_ms + 15000);
+    EXPECT_TRUE(
+            tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, t0 + 15 + 19));
+    EXPECT_FALSE(
+            tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, t0 + 15 + 20));
+
+    // long failure streak: backoff is capped at compaction_failure_backoff_max_second
+    int64_t last = t0 + 15;
+    for (int i = 0; i < 20; ++i) {
+        last += 20;
+        tablet->note_cumu_compaction_failure(last * 1000);
+    }
+    EXPECT_TRUE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, last + 299));
+    EXPECT_FALSE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, last + 300));
+
+    // a success (failure time reset to 0) clears the streak, backoff starts over from base
+    tablet->set_last_cumu_compaction_failure_time(0);
+    EXPECT_FALSE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, last));
+    tablet->note_cumu_compaction_failure(last * 1000);
+    EXPECT_TRUE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, last + 4));
+    EXPECT_FALSE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, last + 5));
+
+    // a timestamp-only setter call (e.g. the thread-pool-busy delay, or a second
+    // reporter of the same failure event) must NOT grow the streak:
+    // without this, one compaction failure could be counted twice and the backoff
+    // would double for free on every attempt
+    tablet->set_last_cumu_compaction_failure_time(last * 1000);
+    EXPECT_TRUE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, last + 4));
+    EXPECT_FALSE(tablet->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, last + 5));
+
+    // base compaction backs off independently
+    tablet->note_base_compaction_failure(t0_ms);
+    EXPECT_TRUE(tablet->should_skip_compaction(CompactionType::BASE_COMPACTION, t0 + 4));
+    EXPECT_FALSE(tablet->should_skip_compaction(CompactionType::BASE_COMPACTION, t0 + 5));
+    tablet->note_base_compaction_failure(t0_ms + 5000);
+    EXPECT_TRUE(tablet->should_skip_compaction(CompactionType::BASE_COMPACTION, t0 + 5 + 9));
+    EXPECT_FALSE(tablet->should_skip_compaction(CompactionType::BASE_COMPACTION, t0 + 5 + 10));
+
+    // the pre-existing low-score skip keeps using the fixed skip_tablet_compaction_second
+    // as long as no compaction failure was ever recorded
+    auto tablet_meta2 = new_tablet_meta(TTabletSchema());
+    TabletSharedPtr tablet2(new Tablet(*k_engine, tablet_meta2, nullptr));
+    tablet2->set_skip_compaction(true, CompactionType::CUMULATIVE_COMPACTION, t0);
+    EXPECT_TRUE(tablet2->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, t0 + 9));
+    EXPECT_FALSE(tablet2->should_skip_compaction(CompactionType::CUMULATIVE_COMPACTION, t0 + 10));
+}
+
 } // namespace doris
