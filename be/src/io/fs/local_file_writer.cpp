@@ -249,6 +249,33 @@ Status LocalFileWriter::_finalize() {
     return Status::OK();
 }
 
+Status LocalFileWriter::sync() {
+    if (_state != State::OPENED) {
+        return Status::InternalError("sync on closed file: {}", _path.native());
+    }
+    // A WAL leader can sync while another thread appends. Leave _dirty to the append and close paths.
+    return _sync(true);
+}
+
+Status LocalFileWriter::_sync(bool sync_file) {
+    if (sync_file) {
+        int rc;
+#ifdef __APPLE__
+        RETRY_ON_EINTR(rc, ::fcntl(_fd, F_FULLFSYNC));
+#else
+        RETRY_ON_EINTR(rc, ::fdatasync(_fd));
+#endif
+        if (rc < 0) {
+            return localfs_error(errno, fmt::format("failed to sync {}", _path.native()));
+        }
+    }
+    if (!_parent_synced) {
+        RETURN_IF_ERROR(sync_dir(_path.parent_path()));
+        _parent_synced = true;
+    }
+    return Status::OK();
+}
+
 Status LocalFileWriter::_close(bool sync) {
     auto fd_reclaim_func = [&](Status st) {
         if (_fd > 0 && 0 != ::close(_fd)) {
@@ -259,21 +286,10 @@ Status LocalFileWriter::_close(bool sync) {
         return st;
     };
     if (sync && config::sync_file_on_close) {
-        if (_dirty) {
-#ifdef __APPLE__
-            if (fcntl(_fd, F_FULLFSYNC) < 0) [[unlikely]] {
-                return fd_reclaim_func(
-                        localfs_error(errno, fmt::format("failed to sync {}", _path.native())));
-            }
-#else
-            if (0 != ::fdatasync(_fd)) [[unlikely]] {
-                return fd_reclaim_func(
-                        localfs_error(errno, fmt::format("failed to sync {}", _path.native())));
-            }
-#endif
-            _dirty = false;
+        auto st = _sync(_dirty);
+        if (!st.ok()) {
+            return fd_reclaim_func(st);
         }
-        RETURN_IF_ERROR(fd_reclaim_func(sync_dir(_path.parent_path())));
     }
 
     DBUG_EXECUTE_IF("LocalFileWriter.close.failed", {

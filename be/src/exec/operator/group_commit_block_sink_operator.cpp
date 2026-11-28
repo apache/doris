@@ -242,7 +242,8 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
         if (dp->param<int64_t>("table_id", -1) == _table_id) {
             if (_load_block_queue) {
                 _remove_estimated_wal_bytes();
-                [[maybe_unused]] auto st = _load_block_queue->remove_load_id(p._load_id);
+                RETURN_IF_ERROR(_load_block_queue->remove_load_id(
+                        p._load_id, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
                 _load_id_removed = true;
             }
             if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
@@ -332,8 +333,11 @@ Status GroupCommitBlockSinkOperatorX::sink_impl(RuntimeState* state, Block* inpu
                 RETURN_IF_ERROR(local_state._add_blocks(state, true));
             }
             local_state._remove_estimated_wal_bytes();
-            [[maybe_unused]] auto st = local_state._load_block_queue->remove_load_id(_load_id);
-            local_state._load_id_removed = true;
+            if (!local_state._load_id_removed) {
+                RETURN_IF_ERROR(local_state._load_block_queue->remove_load_id(
+                        _load_id, local_state._group_commit_mode == TGroupCommitMode::ASYNC_MODE));
+                local_state._load_id_removed = true;
+            }
         }
         return Status::OK();
     };

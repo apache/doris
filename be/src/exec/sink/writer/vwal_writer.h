@@ -34,6 +34,7 @@ public:
     ~VWalWriter();
     Status init();
     Status write_wal(Block* block);
+    Status sync() { return _wal_writer->sync(); }
     Status close();
 
 private:

@@ -1693,6 +1693,14 @@ DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
+// Require async group commit ACKs to wait for a shared WAL sync on this BE.
+DEFINE_mBool(group_commit_wal_sync_before_ack, "false");
+
+bool get_group_commit_wal_sync_before_ack() {
+    std::lock_guard lock(*get_mutable_string_config_lock());
+    return group_commit_wal_sync_before_ack;
+}
+
 // Max WAL count for one table before rejecting async group commit loads.
 // 0 means no limit.
 DEFINE_mInt32(group_commit_max_wal_num_per_table, "10");

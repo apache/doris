@@ -33,6 +33,7 @@ public:
     LocalFileWriter(Path path, int fd, bool sync_data = true);
     ~LocalFileWriter() override;
 
+    Status sync() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status append_iobuf(const butil::IOBuf& data);
     const Path& path() const override { return _path; }
@@ -41,12 +42,14 @@ public:
     Status close(bool non_block = false) override;
 
 private:
+    Status _sync(bool sync_file);
     Status _finalize();
     void _abort();
     Status _close(bool sync);
 
     Path _path;
     int _fd; // owned
+    bool _parent_synced = false;
     bool _dirty = false;
     const bool _sync_data = true;
     size_t _bytes_appended = 0;

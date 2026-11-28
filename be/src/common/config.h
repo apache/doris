@@ -1719,6 +1719,9 @@ DECLARE_mInt32(group_commit_queue_mem_limit);
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
 DECLARE_Bool(group_commit_wait_replay_wal_finish);
+// Require async group commit ACKs to wait for a shared WAL sync on this BE.
+DECLARE_mBool(group_commit_wal_sync_before_ack);
+bool get_group_commit_wal_sync_before_ack();
 // Max WAL count for one table before rejecting async group commit loads. 0 means no limit.
 DECLARE_mInt32(group_commit_max_wal_num_per_table);
 // Max time(ms) to wait for creating group commit plan fragment. 0 means no timeout.

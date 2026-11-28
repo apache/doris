@@ -19,20 +19,27 @@
 
 #include <array>
 #include <filesystem>
+#include <future>
 #include <memory>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/exchange/vdata_stream_recvr.h"
+#include "exec/pipeline/dependency.h"
 #include "gmock/gmock.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "load/group_commit/group_commit_mgr.h"
 #include "load/group_commit/wal/wal_file_reader.h"
 #include "load/group_commit/wal/wal_writer.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "service/brpc.h"
 #include "testutil/test_util.h"
+#include "util/defer_op.h"
 #include "util/proto_util.h"
 
 using ::testing::_;
@@ -143,6 +150,73 @@ TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
     EXPECT_EQ(3, block_count);
 }
 
+class WalGroupSyncTest : public testing::TestWithParam<bool> {};
+
+// Exercise group commit through the same add/EOS calls as the pipeline sink.
+TEST_P(WalGroupSyncTest, ConcurrentAsyncAcksShareWalSync) {
+    class MockWalFile final : public io::FileWriter {
+    public:
+        MOCK_METHOD(Status, sync, (), (override));
+        MOCK_METHOD(Status, appendv, (const Slice*, size_t), (override));
+        MOCK_METHOD(Status, close, (bool), (override));
+        MOCK_METHOD(const io::Path&, path, (), (const, override));
+        MOCK_METHOD(size_t, bytes_appended, (), (const, override));
+        MOCK_METHOD(State, state, (), (const, override));
+    };
+    const auto old_sync = config::get_group_commit_wal_sync_before_ack();
+    ASSERT_TRUE(config::set_config("group_commit_wal_sync_before_ack", "true").ok());
+    Defer restore {[&] {
+        EXPECT_TRUE(
+                config::set_config("group_commit_wal_sync_before_ack", old_sync ? "true" : "false")
+                        .ok());
+    }};
+    std::string label = "wal_group_sync";
+    LoadBlockQueue queue({}, label, 1, 0, 1, std::make_shared<std::atomic_size_t>(0), false, 60000,
+                         1 << 20);
+    std::vector<TSlotDescriptor> slots;
+    queue._v_wal_writer = std::make_shared<VWalWriter>(1, 1, 1, label, nullptr, slots,
+                                                       BeExecVersionManager::get_newest_version());
+    auto writer = std::make_shared<WalWriter>(label);
+    auto file = std::make_unique<MockWalFile>();
+    EXPECT_CALL(*file, appendv(_, _)).WillRepeatedly(Return(Status::OK()));
+    std::promise<void> first_sync, release_first;
+    auto release = release_first.get_future();
+    EXPECT_CALL(*file, sync())
+            .WillOnce([&] {
+                first_sync.set_value();
+                EXPECT_EQ(std::future_status::ready, release.wait_for(std::chrono::seconds(5)));
+                return Status::OK();
+            })
+            .WillOnce(Return(GetParam() ? Status::OK() : Status::IOError("second sync failed")));
+    writer->_file_writer = std::move(file);
+    queue._v_wal_writer->_wal_writer = writer;
+
+    RuntimeState state;
+    auto append = [&](UniqueId id) {
+        RETURN_IF_ERROR(queue.add_load_id(id, std::make_shared<Dependency>(0, 0, label)));
+        auto col = ColumnInt32::create();
+        col->insert_value(1);
+        auto block = std::make_shared<Block>(
+                ColumnsWithTypeAndName {{std::move(col), std::make_shared<DataTypeInt32>(), "k"}});
+        return queue.add_block(&state, block, true, id);
+    };
+    auto ack = [&](UniqueId id) { return queue.remove_load_id(id, true); };
+    UniqueId a(0, 1), b(0, 2), c(0, 3);
+    ASSERT_TRUE(append(a).ok());
+    auto first = std::async(std::launch::async, ack, a);
+    ASSERT_EQ(std::future_status::ready, first_sync.get_future().wait_for(std::chrono::seconds(5)));
+    ASSERT_TRUE(append(b).ok());
+    ASSERT_TRUE(append(c).ok());
+    auto second = std::async(std::launch::async, ack, b);
+    auto third = std::async(std::launch::async, ack, c);
+    release_first.set_value();
+    EXPECT_TRUE(first.get().ok());
+    EXPECT_EQ(GetParam(), second.get().ok());
+    EXPECT_EQ(GetParam(), third.get().ok());
+}
+
+INSTANTIATE_TEST_SUITE_P(SyncResult, WalGroupSyncTest, testing::Bool());
+
 TEST_F(WalReaderWriterTest, TestReadIncompleteLastRecord) {
     PBlock first_block;
     PBlock last_block;
@@ -165,7 +239,9 @@ TEST_F(WalReaderWriterTest, TestReadIncompleteLastRecord) {
         std::string file_name = _s_test_data_path + "/incomplete_last_record_" + std::to_string(i);
         auto wal_writer = WalWriter(file_name);
         ASSERT_TRUE(wal_writer.init(io::global_local_filesystem()).ok());
-        ASSERT_TRUE(wal_writer.append_blocks({&first_block, &last_block}).ok());
+        ASSERT_TRUE(wal_writer.append_blocks({&first_block}).ok());
+        ASSERT_TRUE(wal_writer.sync().ok());
+        ASSERT_TRUE(wal_writer.append_blocks({&last_block}).ok());
         ASSERT_TRUE(wal_writer.finalize().ok());
         ASSERT_NO_THROW(std::filesystem::resize_file(file_name, truncated_sizes[i]));
 

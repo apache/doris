@@ -35,6 +35,7 @@
 #include "service/backend_options.h"
 #include "util/client_cache.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 
@@ -99,6 +100,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state, std::shared_ptr<Bl
                 _cancel_without_lock(st);
                 return st;
             }
+            ++_wal_append_seq;
         }
         if (!runtime_state->is_cancelled() && status.ok() &&
             _all_block_queues_bytes->load(std::memory_order_relaxed) >=
@@ -199,11 +201,50 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, Block* block, bool
     return Status::OK();
 }
 
-Status LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
+Status LoadBlockQueue::_sync_wal_before_ack(std::unique_lock<std::mutex>& lock) {
+    const auto target = _wal_append_seq;
+    _wal_sync_cv.wait(lock, [&] {
+        return !status.ok() || _wal_synced_seq >= target || !_wal_sync_in_progress;
+    });
+    RETURN_IF_ERROR(status);
+    if (_wal_synced_seq >= target) {
+        return Status::OK();
+    }
+
+    // Cover everything appended before this sync starts. Concurrent appends belong
+    // to the next group even if the filesystem happens to flush them as well.
+    const auto batch_end = _wal_append_seq;
+    _wal_sync_in_progress = true;
+    Status st;
+    {
+        lock.unlock();
+        Defer finish_sync {[&] {
+            lock.lock();
+            _wal_sync_in_progress = false;
+            _wal_sync_cv.notify_all();
+        }};
+        st = _v_wal_writer->sync();
+    }
+    if (!st.ok()) {
+        _cancel_without_lock(st);
+        return st;
+    }
+    _wal_synced_seq = batch_end;
+    return status;
+}
+
+Status LoadBlockQueue::remove_load_id(const UniqueId& load_id, bool sync_wal) {
+    const bool sync_before_ack = sync_wal && config::get_group_commit_wal_sync_before_ack();
     std::unique_lock l(mutex);
-    if (_load_ids_to_write_dep.find(load_id) != _load_ids_to_write_dep.end()) {
-        _load_ids_to_write_dep[load_id]->set_always_ready();
-        _load_ids_to_write_dep.erase(load_id);
+    if (sync_wal) {
+        RETURN_IF_ERROR(status);
+        if (sync_before_ack && _load_ids_to_write_dep.contains(load_id)) {
+            RETURN_IF_ERROR(_sync_wal_before_ack(l));
+        }
+    }
+    if (auto it = _load_ids_to_write_dep.find(load_id); it != _load_ids_to_write_dep.end()) {
+        it->second->set_always_ready();
+        _load_ids_to_write_dep.erase(it);
         for (auto read_dep : _read_deps) {
             read_dep->set_ready();
         }
@@ -245,6 +286,7 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
               << ", status=" << st.to_string();
     status =
             Status::Cancelled("cancel group_commit, label=" + label + ", status=" + st.to_string());
+    _wal_sync_cv.notify_all();
     size_t before_block_queues_bytes = _all_block_queues_bytes->load();
     while (!_block_queue.empty()) {
         const BlockData& block_data = _block_queue.front();
@@ -927,6 +969,12 @@ Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
 }
 
 Status LoadBlockQueue::close_wal() {
+    {
+        // Normal EOS has released every producer. On cancellation no new sync can
+        // start, but the current leader may still be using the file descriptor.
+        std::unique_lock lock(mutex);
+        _wal_sync_cv.wait(lock, [&] { return !_wal_sync_in_progress; });
+    }
     if (_v_wal_writer != nullptr) {
         RETURN_IF_ERROR(_v_wal_writer->close());
     }
