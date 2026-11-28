@@ -87,6 +87,10 @@ jobs:
             echo "comment_trigger=true" | tee -a "$GITHUB_OUTPUT"
             echo "comment_skip=false" | tee -a "$GITHUB_OUTPUT"
         elif [[ "${COMMENT_BODY}" == *'skip buildall'* ]]; then
+            case "$TARGET_BRANCH" in
+              master|branch-4.2|branch-4.1) ;;
+              *) echo "skip buildall is unavailable on $TARGET_BRANCH"; exit 1 ;;
+            esac
             if [[ "${COMMENT_USER_ID}" == '27881198' ||
                   "${COMMENT_USER_ID}" == '2899462' ||
                   "${COMMENT_USER_ID}" == '37901441' ]]; then
@@ -116,19 +120,14 @@ jobs:
         echo "COMMIT_ID_FROM_TRIGGER=${COMMIT_ID_FROM_TRIGGER}" | tee -a "$GITHUB_OUTPUT"
         echo "TARGET_BRANCH=${TARGET_BRANCH}" | tee -a "$GITHUB_OUTPUT"
         echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "$GITHUB_ENV"
-        case "$TARGET_BRANCH" in
-          master|branch-4.2|branch-4.1)
-            if [[ "$COMMENT_BODY" == *'run '* ]]; then
-              permission=$(curl --fail --silent --show-error \
-                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-                "https://api.github.com/repos/${{ github.repository }}/collaborators/${{ github.event.comment.user.login }}/permission" | jq -r .permission)
-              [[ "$permission" == write || "$permission" == maintain || "$permission" == admin ]] || {
-                echo 'Repository write access is required to trigger current TeamCity'; exit 1;
-              }
-            fi
-            ;;
-          *) echo "No TeamCity PR pipeline configured for $TARGET_BRANCH"; exit 1;;
-        esac
+        if [[ "$COMMENT_BODY" == *'run '* ]]; then
+          permission=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${{ github.repository }}/collaborators/${{ github.event.comment.user.login }}/permission" | jq -r .permission)
+          [[ "$permission" == write || "$permission" == maintain || "$permission" == admin ]] || {
+            echo 'Repository write access is required to trigger current TeamCity'; exit 1;
+          }
+        fi
         COMMENT_BODY_DELIMITER=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
         {
           echo "COMMENT_BODY<<${COMMENT_BODY_DELIMITER}"
@@ -149,9 +148,6 @@ jobs:
           echo "file_count=$file_count" >> "$GITHUB_OUTPUT"
         elif [[ "${COMMENT_BODY}" != 'skip buildall' ]]; then
           echo 'Unsupported command; use run <TeamCity check suffix> [count] or run buildall'; exit 1
-        fi
-        if [[ "$COMMENT_TRIGGER_TYPE" == performance ]]; then
-          [[ "$TARGET_BRANCH" == master ]] || { echo 'Performance is available only for master'; exit 1; }
         fi
         echo "COMMENT_TRIGGER_TYPE=${COMMENT_TRIGGER_TYPE}" | tee -a "$GITHUB_OUTPUT"
         echo "COMMENT_REPEAT_TIMES=${COMMENT_REPEAT_TIMES}" | tee -a "$GITHUB_OUTPUT"
@@ -285,7 +281,7 @@ jobs:
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_fe_ut }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
+          "$TARGET_BRANCH" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "feut"
 
@@ -298,7 +294,7 @@ jobs:
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_be_ut }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
+          "$TARGET_BRANCH" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "beut"
 
@@ -310,7 +306,7 @@ jobs:
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_cloud_ut }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
+          "$TARGET_BRANCH" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "cloudut"
 
@@ -327,7 +323,7 @@ jobs:
         trigger_or_skip_build \
           "${changed}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
+          "$TARGET_BRANCH" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "compile"
 
@@ -339,7 +335,7 @@ jobs:
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_p0 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
+          "$TARGET_BRANCH" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "p0"
 
@@ -351,7 +347,7 @@ jobs:
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_external }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
+          "$TARGET_BRANCH" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "external"
 
@@ -363,7 +359,7 @@ jobs:
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_cloud_p0 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
+          "$TARGET_BRANCH" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "cloud_p0"
 
@@ -376,7 +372,7 @@ jobs:
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_vault_p0 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
+          "$TARGET_BRANCH" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "vault_p0"
 
@@ -388,19 +384,19 @@ jobs:
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_nonconcurrent }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
+          "$TARGET_BRANCH" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "nonconcurrent"
   
     - name: "Trigger performance"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) && steps.parse.outputs.TARGET_BRANCH == 'master' }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_performance }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
+          "$TARGET_BRANCH" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "performance"
 

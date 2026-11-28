@@ -18,13 +18,10 @@
 
 # Comment keywords match the suffix of the published TeamCity/<keyword> check.
 # External and Performance are optional and therefore absent from required checks.
-declare -A targetBranch_to_pipelines=(
-    [master]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonconcurrent performance'
-    [branch-4.2]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonconcurrent'
-    [branch-4.1]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonconcurrent'
-)
 declare -A conment_to_context
-for lane in ${targetBranch_to_pipelines[master]}; do conment_to_context[$lane]="TeamCity/$lane"; done
+for lane in compile feut beut cloudut p0 cloud_p0 vault_p0 external nonconcurrent performance; do
+    conment_to_context[$lane]="TeamCity/$lane"
+done
 unset lane
 
 teamcity_current_pr() {
@@ -126,14 +123,14 @@ trigger_or_skip_build() {
     local PULL_REQUEST_TARGET_BRANCH="${PULL_REQUEST_TARGET_BRANCH:-$3}"
     local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$4}"
     local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$5}"
-    if [[ -z "${PULL_REQUEST_NUM}" ||
+    if [[ -z "${PULL_REQUEST_NUM}" || -z "${PULL_REQUEST_TARGET_BRANCH}" ||
         -z "${COMMIT_ID_FROM_TRIGGER}" ||
         -z "${COMMENT_TRIGGER_TYPE}" ]]; then
         echo "Usage: trigger_or_skip_build FILE_CHANGED PR TARGET_BRANCH COMMIT LANE"
         return 1
     fi
 
-    [[ " ${targetBranch_to_pipelines[$PULL_REQUEST_TARGET_BRANCH]:-} " == *" $COMMENT_TRIGGER_TYPE "* ]] || {
+    [[ -n ${conment_to_context[$COMMENT_TRIGGER_TYPE]:-} ]] || {
         echo "No pipeline for $COMMENT_TRIGGER_TYPE on $PULL_REQUEST_TARGET_BRANCH" >&2; return 1;
     }
     case "$FILE_CHANGED" in

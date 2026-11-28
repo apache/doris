@@ -278,6 +278,8 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
     def test_skip_buildall_authorization_is_preserved(self):
         _, output = self.parse_comment('skip buildall')
         self.assertIn('comment_skip=true', output)
+        result, _ = self.parse_comment('skip buildall', branch='feature/example', check=False)
+        self.assertNotEqual(result.returncode, 0)
         _, output = self.parse_comment('skip buildall', user_id='123456', check=False)
         self.assertNotIn('comment_skip=true', output)
         _, output = self.parse_comment('skip buildall', branch='branch-4.2', user_id='9208457')
@@ -298,25 +300,18 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
             self.assertFalse(self.plan.exists())
 
     def test_workflow_branch_and_permission_checks(self):
-        for branch in ['branch-4.2', 'branch-4.1']:
-            result, _ = self.parse_comment('run performance', branch=branch, check=False)
-            self.assertNotEqual(result.returncode, 0)
-            self.parse_comment('run buildall', branch=branch)
-            self.parse_comment('run feut', branch=branch)
-        for branch, permission in [('branch-4.0', 'write'), ('master', 'read')]:
-            result, _ = self.parse_comment('run feut', branch=branch, permission=permission, check=False)
+        for branch in ['master', 'branch-4.2', 'branch-4.0', 'feature/新版本']:
+            for command in ['run performance', 'run buildall', 'run feut']:
+                self.parse_comment(command, branch=branch)
+            result, _ = self.parse_comment('run feut', branch=branch, permission='read', check=False)
             self.assertNotEqual(result.returncode, 0)
 
-    def test_retired_branch_has_no_submission(self):
-        result = self.run_shell('trigger_or_skip_build true 123 branch-4.0 ' + HEAD + ' feut', check=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(self.plan.exists())
-
-    def test_release_branches_reject_performance(self):
-        for branch in ['branch-4.2', 'branch-4.1']:
-            result = self.run_shell('trigger_or_skip_build true 123 ' + branch + ' ' + HEAD + ' performance', check=False)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertFalse(self.plan.exists())
+    def test_lane_selection_accepts_any_pr_target(self):
+        for branch in ['branch-4.0', 'feature/新版本']:
+            for lane in ['feut', 'performance']:
+                self.run_shell('trigger_or_skip_build true 123 "$TARGET_BRANCH" ' + HEAD + ' ' + lane,
+                               env={'TARGET_BRANCH': branch})
+        self.assertEqual(self.plan.read_text().splitlines(), ['feut', 'performance'] * 2)
 
     def test_status_token_is_not_traced(self):
         result = self.run_shell('curl(){ return 0; }; set -x; skip_build "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" feut',
@@ -337,7 +332,6 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
                                          'contains': lambda values, value: value in values}):
                         selected.add(lane)
                 expected = {'feut', 'beut', 'cloudut', 'compile', 'performance'} if command == 'buildall' else {command}
-                if branch != 'master': expected.discard('performance')
                 self.assertEqual(selected, expected, (branch, command))
 
     def test_removed_lane_has_no_legacy_fallback(self):
