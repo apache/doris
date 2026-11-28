@@ -28,11 +28,14 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
+import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.spi.Split;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
 import org.apache.doris.tablefunction.PluginDrivenQueryTableValueFunction;
@@ -43,6 +46,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.junit.jupiter.api.Assertions;
@@ -51,8 +55,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -210,6 +216,65 @@ public class FileQueryScanNodeTest {
         SessionVariable sv = new SessionVariable();
         Assertions.assertEquals(512 * MB, sv.getFileSplitSizeOnFe());
         Assertions.assertEquals(64 * MB, sv.getFileSplitSizeOnBe());
+    }
+
+    @Test
+    public void nativeByteRangesRetainMetadataAndNonzeroOffsetAcrossBackends() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.params = new TFileScanRangeParams();
+        node.params.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        FileSplit original = new FileSplit(LocationPath.of("s3://bucket/native.parquet"),
+                100 * MB, 400 * MB, 800 * MB, 17, new String[] {"192.0.2.1"}, List.of("7"));
+        List<Split> splits = new ArrayList<>(node.splitForBackendParallelism(List.of(original), 3));
+        Assertions.assertEquals(3, splits.size());
+        splits.sort(Comparator.comparingLong(Split::getStart));
+        long next = 100 * MB;
+        for (Split split : splits) {
+            FileSplit file = (FileSplit) split;
+            Assertions.assertEquals(next, file.getStart());
+            Assertions.assertSame(original.getPath(), file.getPath());
+            Assertions.assertEquals(800 * MB, file.getFileLength());
+            Assertions.assertEquals(17, file.getModificationTime());
+            Assertions.assertArrayEquals(original.getHosts(), file.getHosts());
+            Assertions.assertEquals(List.of("7"), file.getPartitionValues());
+            next += file.getLength();
+        }
+        Assertions.assertEquals(500 * MB, next);
+        Assertions.assertEquals(100 * MB, original.getStart());
+        Assertions.assertEquals(400 * MB, original.getLength());
+    }
+
+    @Test
+    public void backendPlacementPreservesSerialDisabledCountAndCompressedRanges() throws Exception {
+        for (int mode = 0; mode < 5; mode++) {
+            SessionVariable variables = new SessionVariable();
+            TestFileQueryScanNode node = new TestFileQueryScanNode(variables);
+            node.params = new TFileScanRangeParams();
+            node.params.setFormatType(TFileFormatType.FORMAT_PARQUET);
+            switch (mode) {
+                case 0:
+                    variables.maxFileScannersConcurrency = 1;
+                    break;
+                case 1:
+                    variables.setFileSplitSizeOnFe(0);
+                    break;
+                case 2:
+                    variables.setFileSplitSizeOnBe(0);
+                    break;
+                case 3:
+                    node.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+                    node.setPushDownCountSlotIds(Collections.emptyList());
+                    break;
+                default:
+                    break;
+            }
+            String path = mode == 4 ? "s3://bucket/file.parquet.gz" : "s3://bucket/file.parquet";
+            FileSplit original = new FileSplit(LocationPath.of(path),
+                    0, 400 * MB, 400 * MB, 17, null, Collections.emptyList());
+            List<Split> splits = node.splitForBackendParallelism(List.of(original), 2);
+            Assertions.assertEquals(1, splits.size());
+            Assertions.assertSame(original, splits.get(0));
+        }
     }
 
     @Test

@@ -80,12 +80,15 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -471,7 +474,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanBackendIds.add(backend.getId());
             }
         } else {
-            List<Split> inputSplits = getSplits(numBackends);
+            List<Split> inputSplits = splitForBackendParallelism(getSplits(numBackends), numBackends);
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
@@ -547,6 +550,46 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected boolean supportsBeSplitRefinement(FileSplit split) {
         return true;
+    }
+
+    protected boolean supportsFeSplitRefinement(FileSplit split) {
+        return isColumnarFormat(params.getFormatType()) && supportsBeSplitRefinement(split);
+    }
+
+    List<Split> splitForBackendParallelism(List<Split> splits, int numBackends) throws UserException {
+        int desiredSplits = sessionVariable.getMaxFileSplitNum() > 0
+                ? Math.min(numBackends, sessionVariable.getMaxFileSplitNum()) : numBackends;
+        if (splits.size() >= desiredSplits || coarseSplitSizeForBeRefinement() <= 0
+                || isTableLevelCountStarPushdown()) {
+            return splits;
+        }
+
+        // BE physical children stay on their source BE. Retain a bounded number of FE ranges
+        // for cross-BE placement without listing files again or making already ample plans finer.
+        PriorityQueue<FileSplit> candidates = new PriorityQueue<>(
+                Comparator.comparingLong(FileSplit::getLength).reversed());
+        List<Split> result = new ArrayList<>();
+        for (Split split : splits) {
+            FileSplit fileSplit = (FileSplit) split;
+            if (supportsFeSplitRefinement(fileSplit) && getFileCompressType(fileSplit) == TFileCompressType.PLAIN) {
+                candidates.add(fileSplit);
+            } else {
+                result.add(split);
+            }
+        }
+        while (!candidates.isEmpty() && result.size() + candidates.size() < desiredSplits) {
+            FileSplit largest = candidates.poll();
+            long half = largest.getLength() / 2;
+            // Avoid replacing one coarse range with tiny FE tasks merely to reach every BE.
+            if (half < sessionVariable.getFileSplitSizeOnBe()) {
+                result.add(largest);
+                break;
+            }
+            candidates.add(largest.withRange(largest.getStart(), half));
+            candidates.add(largest.withRange(largest.getStart() + half, largest.getLength() - half));
+        }
+        result.addAll(candidates);
+        return result;
     }
 
     protected long coarseSplitSizeForBeRefinement() {

@@ -1956,7 +1956,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
-                .coarseSplitSize(coarseSplitSizeForBeRefinement())
+                // Sampling selects FE ranges, so coarsening here would enlarge the sample itself.
+                .coarseSplitSize(applySample ? -1 : coarseSplitSizeForBeRefinement())
                 .aggregatePushdown(getPushDownAggNoGroupingOp() != TPushAggOp.NONE)
                 .backendCapabilities(commonBackendCapabilities(backendPolicy.getBackends()))
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
@@ -2614,6 +2615,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     protected boolean supportsBeSplitRefinement(FileSplit split) {
         return ((PluginDrivenSplit) split).getConnectorScanRange().supportsBeSplitRefinement();
+    }
+
+    @Override
+    protected boolean supportsFeSplitRefinement(FileSplit split) {
+        ConnectorScanRange range = ((PluginDrivenSplit) split).getConnectorScanRange();
+        return range.supportsBeSplitRefinement() && range.getPushDownRowCount() < 0
+                && ("parquet".equals(range.getFileFormat()) || "orc".equals(range.getFileFormat()));
     }
 
     @Override
