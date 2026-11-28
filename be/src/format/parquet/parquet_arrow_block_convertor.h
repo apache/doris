@@ -31,6 +31,8 @@ public:
               _names(std::move(names)),
               _enable_int96_timestamps(enable_int96_timestamps) {}
     Status get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const override;
+    Status convert_to_arrow_type(const DataTypePtr& type,
+                                 std::shared_ptr<arrow::DataType>* result) const override;
 
 protected:
     std::string timestamp_timezone(PrimitiveType type) const override;
@@ -47,10 +49,8 @@ public:
                                std::string timezone_name, const cctz::time_zone& timezone,
                                bool enable_int96_timestamps)
             : ArrowBlockConvertor(nullptr, timezone),
-              _types(std::move(types)),
-              _names(std::move(names)),
-              _timezone_name(std::move(timezone_name)),
-              _enable_int96_timestamps(enable_int96_timestamps) {}
+              _schema_convertor(std::move(types), std::move(names), std::move(timezone_name),
+                                enable_int96_timestamps) {}
     Status init() override;
 
 protected:
@@ -60,10 +60,7 @@ protected:
                         const cctz::time_zone& timezone) const override;
 
 private:
-    DataTypes _types;
-    std::vector<std::string> _names;
-    std::string _timezone_name;
-    bool _enable_int96_timestamps;
+    const ParquetArrowSchemaConvertor _schema_convertor;
 };
 
 } // namespace doris

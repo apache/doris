@@ -26,8 +26,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.fileformat.ArrowFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -152,6 +155,41 @@ public class NereidsLoadScanProviderTest {
                 ImmutableList.of(new NereidsImportColumnDesc("other")), tableColumn));
     }
 
+    @Test
+    public void testParquetKeepsOnlyVariantSourceTyped() throws Exception {
+        OlapTable table = mockTable();
+        NereidsParamCreateContext context = createLoadContext(table,
+                ImmutableList.of(new NereidsImportColumnDesc("payload"),
+                        new NereidsImportColumnDesc("securityid"), new NereidsImportColumnDesc("raw_v")),
+                new ParquetFileFormatProperties());
+        assertSlot(context, "payload", PrimitiveType.VARIANT);
+        assertSlot(context, "securityid", PrimitiveType.VARCHAR);
+        assertSlot(context, "raw_v", PrimitiveType.VARCHAR);
+        SlotReference payload = context.scanSlots.get(0);
+        Assertions.assertEquals(DataType.fromCatalogType(table.getColumn("payload").getType()), payload.getDataType());
+        Assertions.assertTrue(payload.nullable());
+    }
+
+    @Test
+    public void testOtherFormatsKeepVariantSourceAsText() throws Exception {
+        for (TFileFormatType format : ImmutableList.of(TFileFormatType.FORMAT_CSV_PLAIN,
+                TFileFormatType.FORMAT_JSON, TFileFormatType.FORMAT_ORC)) {
+            FileFormatProperties properties = Mockito.mock(FileFormatProperties.class);
+            Mockito.when(properties.getFileFormatType()).thenReturn(format);
+            NereidsParamCreateContext context = createLoadContext(mockTable(),
+                    ImmutableList.of(new NereidsImportColumnDesc("payload")), properties);
+            assertSlot(context, "payload", PrimitiveType.VARCHAR);
+        }
+    }
+
+    @Test
+    public void testParquetPathVariantSourceRemainsText() throws Exception {
+        NereidsParamCreateContext context = createLoadContext(mockTable(),
+                ImmutableList.of(new NereidsImportColumnDesc("payload")),
+                new ParquetFileFormatProperties(), ImmutableList.of("PAYLOAD"));
+        assertSlot(context, "payload", PrimitiveType.VARCHAR);
+    }
+
     private NereidsParamCreateContext createArrowLoadContext(
             OlapTable table, List<NereidsImportColumnDesc> columnExprList) throws UserException {
         return createLoadContext(table, columnExprList, new ArrowFileFormatProperties());
@@ -160,8 +198,13 @@ public class NereidsLoadScanProviderTest {
     private NereidsParamCreateContext createLoadContext(OlapTable table, List<NereidsImportColumnDesc> columnExprList,
             FileFormatProperties fileFormatProperties)
             throws UserException {
+        return createLoadContext(table, columnExprList, fileFormatProperties, null);
+    }
+
+    private NereidsParamCreateContext createLoadContext(OlapTable table, List<NereidsImportColumnDesc> columnExprList,
+            FileFormatProperties fileFormatProperties, List<String> pathColumns) throws UserException {
         NereidsBrokerFileGroup fileGroup = new NereidsBrokerFileGroup(1L, false, null,
-                Lists.newArrayList("dummy"), null, null, null, columnExprList, null, null, null, null,
+                Lists.newArrayList("dummy"), null, null, pathColumns, columnExprList, null, null, null, null,
                 LoadTask.MergeType.APPEND, null, -1L, false, false, fileFormatProperties);
         TBrokerFileStatus fileStatus = new TBrokerFileStatus();
         fileStatus.setPath("");
@@ -177,7 +220,8 @@ public class NereidsLoadScanProviderTest {
         List<Column> schema = Arrays.asList(
                 new Column("time", PrimitiveType.DATETIME, true),
                 new Column("securityid", PrimitiveType.INT, true),
-                new Column("EV", PrimitiveType.DOUBLE, true));
+                new Column("EV", PrimitiveType.DOUBLE, true),
+                new Column("payload", new VariantType(2048).toCatalogDataType(), false));
         Map<String, Column> nameToColumn = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (Column column : schema) {
             nameToColumn.put(column.getName(), column);

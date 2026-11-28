@@ -351,6 +351,12 @@ public class NereidsLoadScanProvider {
             }
         }
 
+        // Path columns contain text rather than values decoded from the Parquet file.
+        Set<String> pathColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        if (fileGroup.getColumnNamesFromPath() != null) {
+            pathColumns.addAll(fileGroup.getColumnNamesFromPath());
+        }
+
         // create scan SlotReferences
         boolean hasColumnFromTable = false;
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
@@ -374,12 +380,18 @@ public class NereidsLoadScanProvider {
             } else {
                 Column slotColumn;
                 TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
-                // Use real column type for arrow format, other formats read as varchar first
+                // Arrow uses target types; native Parquet VARIANT also keeps its typed source slot.
                 if (fileFormatType == TFileFormatType.FORMAT_ARROW) {
                     if (tblColumn == null) {
                         throw new AnalysisException("Unknown column " + realColName + " in table " + tbl.getName()
                                 + " for " + fileFormatType + " load");
                     }
+                    slotColumn = new Column(realColName, tblColumn.getType(), true);
+                } else if (fileFormatType == TFileFormatType.FORMAT_PARQUET
+                        && tblColumn != null && tblColumn.getType().isVariantType()
+                        && !pathColumns.contains(realColName)) {
+                    // Native VARIANT must not pass through VARCHAR: a root string "true" would
+                    // otherwise be parsed as BOOLEAN. Other source types keep their text contract.
                     slotColumn = new Column(realColName, tblColumn.getType(), true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
