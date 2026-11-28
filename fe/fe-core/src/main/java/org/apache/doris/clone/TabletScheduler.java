@@ -1278,8 +1278,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     /**
-     * Just delete replica which does not locate in colocate backends set.
-     * return true if delete one replica, otherwise, return false.
+     * For ordinary colocate cleanup, delete bad replicas before replicas outside the backend set.
      */
     private boolean handleColocateRedundant(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
             throws SchedException {
@@ -1293,6 +1292,9 @@ public class TabletScheduler extends MasterDaemon {
             return true;
         }
         stat.counterReplicaColocateRedundant.incrementAndGet();
+        if (deleteBadReplica(tabletCtx, false)) {
+            throw new SchedException(Status.FINISHED, "colocate bad replica is deleted");
+        }
         for (Replica replica : tabletCtx.getReplicas()) {
             if (tabletCtx.getColocateBackendsSet().contains(replica.getBackendIdWithoutException())
                     && !replica.isBad()) {

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -40,11 +41,13 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatus;
@@ -55,6 +58,7 @@ import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionIdGenerator;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.MoreCollectors;
@@ -468,6 +472,154 @@ public class RebalanceTest {
             Assertions.assertEquals(Long.valueOf(20002L), move.toBe, "Dest should be the least loaded SSD BE");
         }
         LOG.info("testPartitionRebalancerSkipBEWithoutMedium success");
+    }
+
+    private TabletSchedCtx createColocateRedundantCtx(boolean bad) {
+        Partition partition = olapTable.getPartition(31L);
+        Tablet tablet = partition.getBaseIndex().getTablet(50000L);
+        tablet.getReplicas().forEach(replica -> replica.updateVersion(100L));
+        systemInfoService.addBackend(RebalancerTestUtil.createBackend(10005L, 2048, 0));
+        systemInfoService.addBackend(RebalancerTestUtil.createBackend(10006L, 2048, 0));
+        // Put healthy out-of-group replicas before the colocate group's replicas.
+        for (long beId = 10004L; beId <= 10006L; beId++) {
+            Replica replica = new LocalReplica(50000L + beId - 10001L, beId,
+                    Replica.ReplicaState.NORMAL, bad ? 99L : 100L, 0);
+            replica.setPathHash(beId);
+            replica.setBad(bad);
+            tablet.addReplica(replica, true);
+            invertedIndex.addReplica(tablet.getId(), replica);
+        }
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.REPAIR, db.getId(), olapTable.getId(),
+                partition.getId(), partition.getBaseIndex().getId(), tablet.getId(),
+                ReplicaAllocation.DEFAULT_ALLOCATION, 1L);
+        tabletCtx.setStorageMedium(TStorageMedium.HDD);
+        tabletCtx.setTablet(tablet);
+        tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(10004L, 10005L, 10006L));
+        Assertions.assertEquals(Tablet.TabletStatus.COLOCATE_REDUNDANT,
+                tablet.getColocateHealth(100L, ReplicaAllocation.DEFAULT_ALLOCATION,
+                        tabletCtx.getColocateBackendsSet()).status);
+        return tabletCtx;
+    }
+
+    @Test
+    public void testColocateRedundantDeletesBadReplicasFirst() {
+        TabletSchedCtx tabletCtx = createColocateRedundantCtx(true);
+        Tablet tablet = tabletCtx.getTablet();
+        List<Replica> expectedReplicas = Lists.newArrayList(tablet.getReplicas());
+        Assertions.assertEquals(Lists.newArrayList(10001L, 10002L, 10003L, 10004L, 10005L, 10006L),
+                expectedReplicas.stream().map(Replica::getBackendIdWithoutException).collect(Collectors.toList()));
+        expectedReplicas.remove(tablet.getReplicaByBackendId(10004L));
+        TabletScheduler scheduler = new TabletScheduler(env, systemInfoService, invertedIndex,
+                new TabletSchedulerStat(), "");
+
+        try (MockedStatic<AgentTaskExecutor> ignored = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            SchedException exception = Assertions.assertThrows(SchedException.class,
+                    () -> Deencapsulation.invoke(scheduler, "handleColocateRedundant", tabletCtx,
+                            new AgentBatchTask()));
+            Assertions.assertEquals(SchedException.Status.FINISHED, exception.getStatus());
+            Assertions.assertEquals(expectedReplicas.size(), tablet.getReplicas().size());
+            Assertions.assertNull(tablet.getReplicaByBackendId(10004L));
+            Assertions.assertNull(invertedIndex.getReplica(tablet.getId(), 10004L));
+            for (Replica replica : expectedReplicas) {
+                long beId = replica.getBackendIdWithoutException();
+                Assertions.assertSame(replica, tablet.getReplicaByBackendId(beId));
+                Assertions.assertSame(replica, invertedIndex.getReplica(tablet.getId(), beId));
+            }
+        }
+    }
+
+    @Test
+    public void testColocateRedundantProtectsOnlyLatestBadReplica() {
+        TabletSchedCtx tabletCtx = createColocateRedundantCtx(false);
+        Tablet tablet = tabletCtx.getTablet();
+        Replica badReplica = tablet.getReplicaByBackendId(10004L);
+        badReplica.setBad(true);
+        badReplica.updateVersion(101L);
+        List<Replica> replicas = Lists.newArrayList(tablet.getReplicas());
+        TabletScheduler scheduler = new TabletScheduler(env, systemInfoService, invertedIndex,
+                new TabletSchedulerStat(), "");
+
+        try (MockedStatic<AgentTaskExecutor> ignored = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            SchedException exception = Assertions.assertThrows(SchedException.class,
+                    () -> Deencapsulation.invoke(scheduler, "handleColocateRedundant", tabletCtx,
+                            new AgentBatchTask()));
+            Assertions.assertEquals(SchedException.Status.UNRECOVERABLE, exception.getStatus());
+            Assertions.assertEquals(SchedException.SubCode.DIAGNOSE_IGNORE, exception.getSubCode());
+            Assertions.assertEquals(replicas.size(), tablet.getReplicas().size());
+            for (Replica replica : replicas) {
+                long beId = replica.getBackendIdWithoutException();
+                Assertions.assertSame(replica, tablet.getReplicaByBackendId(beId));
+                Assertions.assertSame(replica, invertedIndex.getReplica(tablet.getId(), beId));
+                Assertions.assertEquals(Replica.ReplicaState.NORMAL, replica.getState());
+            }
+        }
+    }
+
+    @Test
+    public void testColocateRedundantWithoutBadKeepsOriginalOrder() {
+        TabletSchedCtx tabletCtx = createColocateRedundantCtx(false);
+        Tablet tablet = tabletCtx.getTablet();
+        List<Replica> replicas = Lists.newArrayList(tablet.getReplicas());
+        TabletScheduler scheduler = new TabletScheduler(env, systemInfoService, invertedIndex,
+                new TabletSchedulerStat(), "");
+
+        try (MockedStatic<AgentTaskExecutor> ignored = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            SchedException exception = Assertions.assertThrows(SchedException.class,
+                    () -> Deencapsulation.invoke(scheduler, "handleColocateRedundant", tabletCtx,
+                            new AgentBatchTask()));
+            Assertions.assertEquals(SchedException.Status.FINISHED, exception.getStatus());
+            Assertions.assertEquals(5, tablet.getReplicas().size());
+            Assertions.assertNull(tablet.getReplicaByBackendId(10001L));
+            Assertions.assertNull(invertedIndex.getReplica(tablet.getId(), 10001L));
+            for (Replica replica : replicas.subList(1, replicas.size())) {
+                long beId = replica.getBackendIdWithoutException();
+                Assertions.assertSame(replica, tablet.getReplicaByBackendId(beId));
+                Assertions.assertSame(replica, invertedIndex.getReplica(tablet.getId(), beId));
+            }
+        }
+    }
+
+    @Test
+    public void testColocateRedundantBadReplicaWaitsForTransactions() throws Exception {
+        TabletSchedCtx tabletCtx = createColocateRedundantCtx(true);
+        Tablet tablet = tabletCtx.getTablet();
+        List<Replica> replicas = Lists.newArrayList(tablet.getReplicas());
+        Replica badReplica = tablet.getReplicaByBackendId(10004L);
+        TabletScheduler scheduler = new TabletScheduler(env, systemInfoService, invertedIndex,
+                new TabletSchedulerStat(), "");
+        GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
+        Mockito.when(transactionMgr.isPreviousTransactionsFinished(111L, db.getId(), olapTable.getId(), 31L))
+                .thenReturn(false);
+        boolean savedRunningUnitTest = FeConstants.runningUnitTest;
+        boolean savedForceDrop = Config.enable_force_drop_redundant_replica;
+        try {
+            FeConstants.runningUnitTest = false;
+            Config.enable_force_drop_redundant_replica = false;
+            SchedException exception = Assertions.assertThrows(SchedException.class,
+                    () -> Deencapsulation.invoke(scheduler, "handleColocateRedundant", tabletCtx,
+                            new AgentBatchTask()));
+            Assertions.assertEquals(SchedException.Status.SCHEDULE_FAILED, exception.getStatus());
+            Assertions.assertEquals(SchedException.SubCode.WAITING_DECOMMISSION, exception.getSubCode());
+            Assertions.assertEquals(Replica.ReplicaState.DECOMMISSION, badReplica.getState());
+            Assertions.assertEquals(111L, badReplica.getPreWatermarkTxnId());
+            Assertions.assertEquals(-1L, badReplica.getPostWatermarkTxnId());
+            Assertions.assertEquals(replicas.size(), tablet.getReplicas().size());
+            for (Replica replica : replicas) {
+                long beId = replica.getBackendIdWithoutException();
+                Assertions.assertSame(replica, tablet.getReplicaByBackendId(beId));
+                Assertions.assertSame(replica, invertedIndex.getReplica(tablet.getId(), beId));
+                if (replica != badReplica) {
+                    Assertions.assertEquals(Replica.ReplicaState.NORMAL, replica.getState());
+                    Assertions.assertEquals(-1L, replica.getPreWatermarkTxnId());
+                    Assertions.assertEquals(-1L, replica.getPostWatermarkTxnId());
+                }
+            }
+            Mockito.verify(transactionMgr).isPreviousTransactionsFinished(111L, db.getId(), olapTable.getId(), 31L);
+        } finally {
+            FeConstants.runningUnitTest = savedRunningUnitTest;
+            Config.enable_force_drop_redundant_replica = savedForceDrop;
+        }
     }
 
     @Test
