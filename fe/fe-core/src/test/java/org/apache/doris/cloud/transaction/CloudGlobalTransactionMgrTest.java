@@ -56,6 +56,7 @@ import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.rpc.VersionHelper;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -106,6 +107,7 @@ import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.mockito.stubbing.OngoingStubbing;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -120,8 +122,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 
 public class CloudGlobalTransactionMgrTest {
+
+    private static final String RPC_ERROR = "rpc_error";
 
     private static FakeEditLog fakeEditLog;
     private static FakeEnv fakeEnv;
@@ -1499,6 +1504,97 @@ public class CloudGlobalTransactionMgrTest {
         context.getSessionVariable().cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
         context.getSessionVariable().cloudTableVersionCacheTtlMs = Long.MAX_VALUE;
         context.setThreadLocalInfo();
+    }
+
+    // One get_txn by label gives both the label's latest transaction and its id; get_txn_id is not needed.
+    @ParameterizedTest
+    @ValueSource(strings = {"TXN_STATUS_PREPARED", "TXN_STATUS_PRECOMMITTED", "TXN_STATUS_COMMITTED",
+            "TXN_STATUS_VISIBLE", "TXN_STATUS_ABORTED"})
+    public void testGetTransactionIdReadsTxnIdFromGetTxn(String status) throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(Cloud.GetTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                    .setTxnInfo(buildTxnInfo(123535).toBuilder().setStatus(Cloud.TxnStatusPB.valueOf(status)))
+                    .build());
+            Mockito.when(proxy.getTxnId(Mockito.any())).thenReturn(Cloud.GetTxnIdResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                    .setTxnId(999).build());
+
+            Assertions.assertEquals(123535L,
+                    masterTransMgr.getTransactionId(CatalogTestUtil.testDbId1, CatalogTestUtil.testTxnLabel1));
+            ArgumentCaptor<Cloud.GetTxnRequest> request = ArgumentCaptor.forClass(Cloud.GetTxnRequest.class);
+            Mockito.verify(proxy).getTxn(request.capture());
+            Assertions.assertEquals(CatalogTestUtil.testTxnLabel1, request.getValue().getLabel());
+            Assertions.assertEquals(CatalogTestUtil.testDbId1, request.getValue().getDbId());
+            Mockito.verify(proxy, Mockito.never()).getTxnId(Mockito.any());
+        }
+    }
+
+    @Test
+    public void testGetTransactionIdByMissingLabelReturnsNull() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(Cloud.GetTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.TXN_ID_NOT_FOUND).setMsg("Label [missing] has not found"))
+                    .build());
+
+            Assertions.assertNull(masterTransMgr.getTransactionId(CatalogTestUtil.testDbId1, "missing"));
+        }
+    }
+
+    // A failed lookup must not be reported as a missing label: SHOW TRANSACTION would say "does not exist"
+    // for a transaction that exists.
+    @ParameterizedTest
+    @ValueSource(strings = {"KV_TXN_GET_ERR", "MAX_QPS_LIMIT", "INVALID_ARGUMENT", "UNDEFINED_ERR", RPC_ERROR})
+    public void testGetTransactionIdFailsOnLookupError(String error) throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            stubLookupFailure(Mockito.when(proxy.getTxn(Mockito.any())), error,
+                    status -> Cloud.GetTxnResponse.newBuilder().setStatus(status).build());
+
+            AnalysisException e = Assertions.assertThrows(AnalysisException.class, () -> masterTransMgr
+                    .getTransactionId(CatalogTestUtil.testDbId1, CatalogTestUtil.testTxnLabel1));
+            Assertions.assertTrue(e.getMessage().contains(error.equals(RPC_ERROR) ? "unavailable" : "lookup failed"),
+                    e.getMessage());
+            Mockito.verify(proxy, Mockito.never()).getTxnId(Mockito.any());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"TXN_ID_NOT_FOUND", "KV_TXN_GET_ERR", "MAX_QPS_LIMIT", RPC_ERROR})
+    public void testGetTransactionIdByLabelWithStatusReportsOnlyMissingAsNotFound(String code) throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            stubLookupFailure(Mockito.when(proxy.getTxnId(Mockito.any())), code,
+                    status -> Cloud.GetTxnIdResponse.newBuilder().setStatus(status).build());
+
+            UserException e = Assertions.assertThrows(UserException.class,
+                    () -> masterTransMgr.getTransactionIdByLabel(CatalogTestUtil.testDbId1,
+                            CatalogTestUtil.testTxnLabel1, Lists.newArrayList(TransactionStatus.PRECOMMITTED)));
+            if (code.equals("TXN_ID_NOT_FOUND")) {
+                Assertions.assertInstanceOf(TransactionNotFoundException.class, e);
+            } else {
+                Assertions.assertFalse(e instanceof TransactionNotFoundException, e.getMessage());
+                Assertions.assertTrue(e.getMessage().contains(code.equals(RPC_ERROR) ? "unavailable"
+                        : "lookup failed"), e.getMessage());
+            }
+        }
+    }
+
+    private static <T> void stubLookupFailure(OngoingStubbing<T> lookup, String code,
+            Function<Cloud.MetaServiceResponseStatus, T> buildResponse) {
+        if (code.equals(RPC_ERROR)) {
+            lookup.thenThrow(new RpcException("MS", "unavailable"));
+        } else {
+            lookup.thenReturn(buildResponse.apply(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(MetaServiceCode.valueOf(code)).setMsg("lookup failed").build()));
+        }
     }
 
     private TxnInfoPB buildTxnInfo(long transactionId) {
