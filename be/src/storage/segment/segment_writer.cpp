@@ -318,6 +318,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
 
     opts.rowset_ctx = _opts.rowset_ctx;
     opts.file_writer = _file_writer;
+    opts.early_index_ranges = &_early_index_ranges;
     opts.compression_type = _opts.compression_type;
     opts.footer = &_footer;
     if (_opts.rowset_ctx != nullptr) {
@@ -1032,6 +1033,9 @@ Status SegmentWriter::_finalize_columns_index_impl(uint64_t* index_size) {
         }
     }
     uint64_t file_index_end = _file_writer->bytes_appended();
+    *index_size += _index_file_cache_info.add_inline_index_ranges(
+            _early_index_ranges, config::file_cache_each_block_size);
+    _early_index_ranges.clear();
     _index_file_cache_info.add_index_range(index_start, file_index_end - index_start);
     // reset all column writers and data_conveter
     clear();

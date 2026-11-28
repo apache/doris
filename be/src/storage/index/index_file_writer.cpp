@@ -21,6 +21,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
+#include <exception>
 #include <filesystem>
 
 #include "common/cast_set.h"
@@ -152,6 +154,34 @@ IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_p
         _index_storage_format = std::make_unique<IndexStorageFormatV1>(this);
     } else if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
         _index_storage_format = std::make_unique<IndexStorageFormatV2>(this);
+    }
+}
+
+IndexFileWriter::~IndexFileWriter() {
+    if (_closed) {
+        return;
+    }
+    // A segment can fail after some child indexes have closed but before packaging them.
+    // Only delete local temporary directories. Compound readers refer to existing index files.
+    for (const auto& [key, dir] : _indices_dirs) {
+        if (dir == nullptr || std::strcmp(dir->getObjectName(), "DorisFSDirectory") != 0) {
+            continue;
+        }
+        try {
+            auto* local_dir = static_cast<DorisFSDirectory*>(dir.get());
+            if (local_dir->getFileSystem() == _local_fs &&
+                local_dir->getDirName() ==
+                        InvertedIndexDescriptor::get_temporary_index_path(
+                                _tmp_dir, _rowset_id, _seg_id, key.first, key.second)) {
+                local_dir->deleteDirectory();
+            }
+        } catch (const CLuceneError& err) {
+            LOG(WARNING) << "Failed to clean up temporary index directory for "
+                         << _index_path_prefix << ": " << err.what();
+        } catch (const std::exception& err) {
+            LOG(WARNING) << "Failed to clean up temporary index directory for "
+                         << _index_path_prefix << ": " << err.what();
+        }
     }
 }
 

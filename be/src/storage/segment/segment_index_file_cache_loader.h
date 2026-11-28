@@ -54,6 +54,10 @@ struct SegmentIndexFileCacheInfo {
         index_ranges.push_back({offset, size});
     }
 
+    // Record a batch of inline indexes in file order and return their exact byte count.
+    uint64_t add_inline_index_ranges(const std::vector<SegmentIndexFileCacheRange>& ranges,
+                                     uint64_t cache_block_size);
+
     bool empty() const { return index_ranges.empty(); }
 
     uint64_t cache_start_offset() const {

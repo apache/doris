@@ -206,6 +206,36 @@ TEST_F(IndexFileWriterTest, OpenWithoutRamDirTest) {
     ASSERT_TRUE(writer._indices_dirs.find(key)->second.get() == dir.get());
 }
 
+TEST_F(IndexFileWriterTest, CleansLocalDirectoriesWhenAbortedBeforePacking) {
+    std::vector<std::string> temporary_paths;
+    {
+        IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                               InvertedIndexStorageFormatPB::V2, nullptr, false);
+        for (const char* suffix : {"first", "second"}) {
+            auto index = create_mock_tablet_index(1, suffix);
+            auto result = writer.open(index.get());
+            ASSERT_TRUE(result.has_value());
+            std::unique_ptr<lucene::store::IndexOutput> output(
+                    result.value()->createOutput("example"));
+            output->writeByte(1);
+            output->close();
+
+            auto path = InvertedIndexDescriptor::get_temporary_index_path(
+                    writer._tmp_dir, _rowset_id, _seg_id, index->index_id(),
+                    index->get_index_suffix());
+            bool exists = false;
+            ASSERT_TRUE(_fs->exists(path, &exists).ok());
+            ASSERT_TRUE(exists);
+            temporary_paths.push_back(std::move(path));
+        }
+    }
+    for (const auto& path : temporary_paths) {
+        bool exists = true;
+        ASSERT_TRUE(_fs->exists(path, &exists).ok());
+        EXPECT_FALSE(exists);
+    }
+}
+
 TEST_F(IndexFileWriterTest, OpenWithRamDirTest) {
     // This test verifies the behavior when _can_use_ram_dir is set to true
     // Note: In a test environment, whether a RAM directory is actually used depends on
