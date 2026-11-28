@@ -126,6 +126,7 @@ suite('test_vcg_metrics', 'multi_cluster,docker') {
             httpTest {
                 endpoint fe.host + ":" + fe.httpPort
                 uri "/metrics"
+                basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
                 op "get"
                 check { code, body ->
                     logger.debug("code:${code} body:${body}");
@@ -151,6 +152,7 @@ suite('test_vcg_metrics', 'multi_cluster,docker') {
             httpTest {
                 endpoint fe.host + ":" + fe.httpPort
                 uri "/metrics"
+                basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
                 op "get"
                 check { code, body ->
                     logger.debug("code:${code} body:${body}");

@@ -98,6 +98,7 @@ suite("test_streaming_mysql_job_metrics",
             httpTest {
                 endpoint masterHttpAddress
                 uri "/metrics?type=json"
+                basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
                 op "get"
                 check { code, body ->
                     logger.debug("code:${code} body:${body}")

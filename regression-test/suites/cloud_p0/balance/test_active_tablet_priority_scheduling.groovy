@@ -89,6 +89,7 @@ suite('test_active_tablet_priority_scheduling', 'cloud_p0, docker') {
             httpTest {
                 endpoint masterHttpAddress
                 uri "/metrics?type=json"
+                basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
                 op "get"
                 check { code, body ->
                     def jsonSlurper = new JsonSlurper()
