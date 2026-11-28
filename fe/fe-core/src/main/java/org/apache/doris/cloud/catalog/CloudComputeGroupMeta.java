@@ -70,7 +70,7 @@ public class CloudComputeGroupMeta {
 
     static {
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(BALANCE_TYPE, DEFAULT_COMPUTE_GROUP_BALANCE_ENUM.getValue());
-        if (BalanceTypeEnum.ASYNC_WARMUP.getValue().equals(Config.cloud_warm_up_for_rebalance_type)) {
+        if (BalanceTypeEnum.ASYNC_WARMUP.getValue().equalsIgnoreCase(Config.cloud_warm_up_for_rebalance_type)) {
             ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(BALANCE_WARM_UP_TASK_TIMEOUT,
                     String.valueOf(DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
         }
@@ -186,12 +186,12 @@ public class CloudComputeGroupMeta {
             return;
         }
         String originalBalanceType = properties.get(BALANCE_TYPE);
-        if (BalanceTypeEnum.ASYNC_WARMUP.getValue().equals(originalBalanceType)) {
+        if (BalanceTypeEnum.ASYNC_WARMUP.getValue().equalsIgnoreCase(originalBalanceType)) {
             return;
         }
 
         if (inputProperties.containsKey(BALANCE_TYPE)
-                && BalanceTypeEnum.ASYNC_WARMUP.getValue().equals(inputProperties.get(BALANCE_TYPE))) {
+                && BalanceTypeEnum.ASYNC_WARMUP.getValue().equalsIgnoreCase(inputProperties.get(BALANCE_TYPE))) {
             return;
         }
 
@@ -253,12 +253,12 @@ public class CloudComputeGroupMeta {
         if (balanceType == null) {
             return;
         }
-        if (BalanceTypeEnum.WITHOUT_WARMUP.getValue().equals(balanceType)
-                || BalanceTypeEnum.SYNC_WARMUP.getValue().equals(balanceType)
-                || BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.getValue().equals(balanceType)) {
+        if (BalanceTypeEnum.WITHOUT_WARMUP.getValue().equalsIgnoreCase(balanceType)
+                || BalanceTypeEnum.SYNC_WARMUP.getValue().equalsIgnoreCase(balanceType)
+                || BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.getValue().equalsIgnoreCase(balanceType)) {
             // delete BALANCE_WARM_UP_TASK_TIMEOUT if exists
             target.remove(BALANCE_WARM_UP_TASK_TIMEOUT);
-        } else if (BalanceTypeEnum.ASYNC_WARMUP.getValue().equals(balanceType)) {
+        } else if (BalanceTypeEnum.ASYNC_WARMUP.getValue().equalsIgnoreCase(balanceType)) {
             // if BALANCE_WARM_UP_TASK_TIMEOUT exists, it has been validated in validateProperty
             if (!target.containsKey(BALANCE_WARM_UP_TASK_TIMEOUT)) {
                 target.put(BALANCE_WARM_UP_TASK_TIMEOUT, String.valueOf(DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));

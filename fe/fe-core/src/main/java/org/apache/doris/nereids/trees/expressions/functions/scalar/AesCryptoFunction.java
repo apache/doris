@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /** AesCryptoFunction */
@@ -96,7 +97,7 @@ public abstract class AesCryptoFunction extends CryptoFunction {
     @Override
     public void checkLegalityAfterRewrite() {
         if (arity() >= 4 && child(3) instanceof StringLikeLiteral) {
-            String mode = ((StringLikeLiteral) child(3)).getValue().toUpperCase();
+            String mode = ((StringLikeLiteral) child(3)).getValue().toUpperCase(Locale.ROOT);
             if (!AES_MODES.contains(mode)) {
                 throw new AnalysisException("mode " + mode + " is not supported");
             }

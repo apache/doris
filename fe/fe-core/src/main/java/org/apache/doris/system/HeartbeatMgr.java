@@ -64,6 +64,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -447,7 +448,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     long beStartTime = tBackendInfo.getBeStartTime();
                     String nodeRole = Tag.VALUE_MIX;
                     if (tBackendInfo.isSetBeNodeRole()) {
-                        nodeRole = tBackendInfo.getBeNodeRole();
+                        nodeRole = tBackendInfo.getBeNodeRole().toLowerCase(Locale.ROOT);
                     }
 
                     long fragmentNum = tBackendInfo.getFragmentExecutingCount();

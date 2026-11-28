@@ -228,7 +228,7 @@ public class StreamLoadHandler {
         for (String tableName : tableNames) {
             Table table = db.getTableOrMetaException(tableName, TableType.OLAP);
             if (request.getGroupCommitMode() != null
-                    && !request.getGroupCommitMode().equals("off_mode")) {
+                    && !request.getGroupCommitMode().equalsIgnoreCase("off_mode")) {
                 if (!((OlapTable) table).getTableProperty().getUseSchemaLightChange()) {
                     throw new UserException(
                             "table light_schema_change is false, can't do stream load with group commit mode");

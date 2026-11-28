@@ -1174,7 +1174,7 @@ public class PropertyAnalyzer {
             return TCompressionType.SNAPPY;
         } else if (compressionType.equalsIgnoreCase("default_compression")
                 && !Config.default_compression_type.equalsIgnoreCase("default_compression")) {
-            return TCompressionType.valueOf(Config.default_compression_type);
+            return TCompressionType.valueOf(Config.default_compression_type.toUpperCase(Locale.ROOT));
         } else if (compressionType.equalsIgnoreCase("default_compression")) {
             return TCompressionType.LZ4F;
         } else {

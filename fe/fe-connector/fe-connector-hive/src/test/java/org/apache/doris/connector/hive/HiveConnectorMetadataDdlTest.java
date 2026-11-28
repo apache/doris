@@ -321,6 +321,22 @@ public class HiveConnectorMetadataDdlTest {
         Assertions.assertEquals("plain", client.lastCreateTable.getDefaultTextCompression());
     }
 
+    @Test
+    public void createTableThreadsTextCompressionSessionDefaultInAnyLetterCase() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        Map<String, String> sessionProps = Collections.singletonMap(
+                HiveConnectorMetadata.SESSION_HIVE_TEXT_COMPRESSION, "UNCOMPRESSED");
+        metadata(client, Collections.emptyMap(), Collections.emptyMap())
+                .createTable(sessionWith(sessionProps), request().build());
+        Assertions.assertEquals("plain", client.lastCreateTable.getDefaultTextCompression());
+
+        RecordingHmsClient zstdClient = new RecordingHmsClient();
+        metadata(zstdClient, Collections.emptyMap(), Collections.emptyMap())
+                .createTable(sessionWith(Collections.singletonMap(
+                        HiveConnectorMetadata.SESSION_HIVE_TEXT_COMPRESSION, "ZSTD")), request().build());
+        Assertions.assertEquals("zstd", zstdClient.lastCreateTable.getDefaultTextCompression());
+    }
+
     // ==================== createDatabase ====================
 
     @Test

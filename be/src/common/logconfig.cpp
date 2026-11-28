@@ -211,13 +211,13 @@ bool init_glog(const char* basename) {
     std::string& rollmode = config::sys_log_roll_mode;
     std::string sizeflag = "SIZE-MB-";
     bool ok = false;
-    if (rollmode.compare("TIME-DAY") == 0) {
+    if (iequals(rollmode, "TIME-DAY")) {
         FLAGS_log_split_method = "day";
         ok = true;
-    } else if (rollmode.compare("TIME-HOUR") == 0) {
+    } else if (iequals(rollmode, "TIME-HOUR")) {
         FLAGS_log_split_method = "hour";
         ok = true;
-    } else if (rollmode.substr(0, sizeflag.length()).compare(sizeflag) == 0) {
+    } else if (iequals(rollmode.substr(0, sizeflag.length()), sizeflag)) {
         FLAGS_log_split_method = "size";
         std::string sizestr = rollmode.substr(sizeflag.size(), rollmode.size() - sizeflag.size());
         if (sizestr.size() != 0) {

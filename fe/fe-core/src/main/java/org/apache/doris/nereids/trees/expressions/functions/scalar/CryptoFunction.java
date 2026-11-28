@@ -28,6 +28,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
+import java.util.Locale;
 
 /** CryptoFunction */
 public abstract class CryptoFunction extends ScalarFunction
@@ -86,6 +87,6 @@ public abstract class CryptoFunction extends ScalarFunction
         if (StringUtils.isAllBlank(blockEncryptionMode)) {
             blockEncryptionMode = defaultMode;
         }
-        return new StringLiteral(blockEncryptionMode);
+        return new StringLiteral(blockEncryptionMode.toUpperCase(Locale.ROOT));
     }
 }

@@ -363,8 +363,8 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     request.__set_loadId(ctx->id.to_thrift());
     request.__set_label(ctx->label);
     if (ctx->group_commit) {
-        if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
-            request.__set_group_commit_mode(http_req->header(HTTP_GROUP_COMMIT));
+        if (http_req != nullptr && !http_req->header(HTTP_GROUP_COMMIT).empty()) {
+            request.__set_group_commit_mode(to_lower(http_req->header(HTTP_GROUP_COMMIT)));
         } else {
             // used for wait_internal_group_commit_finish
             request.__set_group_commit_mode("sync_mode");
@@ -402,7 +402,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     ctx->txn_id = ctx->put_result.pipeline_params.txn_conf.txn_id;
     ctx->label = ctx->put_result.pipeline_params.import_label;
     ctx->put_result.pipeline_params.__set_wal_id(ctx->wal_id);
-    if (http_req != nullptr && http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
+    if (http_req != nullptr && iequal(http_req->header(HTTP_GROUP_COMMIT), "async_mode")) {
         // FIXME find a way to avoid chunked stream load write large WALs
         size_t content_length = 0;
         if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {

@@ -61,6 +61,7 @@
 #include "util/algorithm_util.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
+#include "util/string_util.h"
 #include "util/time.h"
 
 namespace doris {
@@ -101,12 +102,14 @@ void Daemon::tcmalloc_gc_thread() {
             std::min(MemInfo::physical_mem() - MemInfo::sys_mem_available_low_water_mark(),
                      MemInfo::mem_limit());
 
-    if (config::memory_mode == std::string("performance")) {
+    // be.conf may spell the mode in any letter case; "PERFORMANCE" or "Compact" must not silently
+    // fall back to the moderate defaults.
+    if (iequal(config::memory_mode, "performance")) {
         max_cache_percent = 100;
         pressure_limit = 90;
         is_performance_mode = true;
         physical_limit_bytes = std::min(MemInfo::mem_limit(), MemInfo::physical_mem());
-    } else if (config::memory_mode == std::string("compact")) {
+    } else if (iequal(config::memory_mode, "compact")) {
         max_cache_percent = 20;
         pressure_limit = 80;
     }

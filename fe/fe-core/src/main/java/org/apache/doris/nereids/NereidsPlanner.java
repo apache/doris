@@ -1608,7 +1608,9 @@ public class NereidsPlanner extends Planner {
     private void setFormatOptions() {
         ConnectContext ctx = statementContext.getConnectContext();
         SessionVariable sessionVariable = ctx.getSessionVariable();
-        switch (sessionVariable.serdeDialect) {
+        String serdeDialect = sessionVariable.serdeDialect == null
+                ? "" : sessionVariable.serdeDialect.toLowerCase(java.util.Locale.ROOT);
+        switch (serdeDialect) {
             case "presto":
             case "trino":
                 statementContext.setFormatOptions(FormatOptions.getForPresto());
